@@ -13,7 +13,7 @@ import {
   getTotalGodownStock,
   resolveItemUnit,
 } from "../constants";
-import type { InventoryItem, Transaction } from "../types";
+import type { InventoryItem, InwardSavedEntry, Transaction } from "../types";
 
 function DashboardTab({
   inventory,
@@ -363,12 +363,14 @@ function ItemHistoryPanel({
   transactions,
   activeBusinessId,
   onClose,
+  inwardSaved = [],
 }: {
   sku: string | null;
   inventory: Record<string, InventoryItem>;
   transactions: Transaction[];
   activeBusinessId: string;
   onClose: () => void;
+  inwardSaved?: InwardSavedEntry[];
 }) {
   if (!sku) return null;
   const item = inventory[sku];
@@ -592,62 +594,79 @@ function ItemHistoryPanel({
                                         </span>
                                       )}
                                     </div>
-                                    {tx.baleItemsList &&
-                                      tx.baleItemsList.length > 0 && (
-                                        <div className="space-y-1 pt-1 border-t border-green-200">
-                                          {tx.baleItemsList.map(
-                                            (
-                                              bi: {
-                                                itemName?: string;
-                                                category?: string;
-                                                qty?: number;
-                                                shopQty?: number;
-                                                godownQuants?: Record<
-                                                  string,
-                                                  number
-                                                >;
-                                              },
-                                              biIdx: number,
-                                            ) => (
-                                              <div
-                                                key={`${bi.itemName}-${biIdx}`}
-                                                className="text-[10px] font-bold text-gray-700"
-                                              >
-                                                <span className="text-gray-900">
-                                                  {bi.itemName}
-                                                </span>
-                                                <span className="text-gray-400 ml-1">
-                                                  ({bi.category})
-                                                </span>
-                                                <span className="ml-2 text-green-700">
-                                                  Qty: {bi.qty}
-                                                </span>
-                                                <div className="flex gap-1 flex-wrap mt-1">
-                                                  {(bi.shopQty || 0) > 0 && (
-                                                    <span className="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-md border border-blue-100">
-                                                      🏪 Shop: {bi.shopQty}
-                                                    </span>
-                                                  )}
-                                                  {Object.entries(
-                                                    bi.godownQuants || {},
-                                                  )
-                                                    .filter(
-                                                      ([, v]) => (v || 0) > 0,
-                                                    )
-                                                    .map(([g, v]) => (
-                                                      <span
-                                                        key={g}
-                                                        className="text-[9px] bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded-md border border-amber-100"
-                                                      >
-                                                        🏭 {g}: {v}
+                                    {(() => {
+                                      const effectiveItems =
+                                        tx.baleItemsList &&
+                                        tx.baleItemsList.length > 0
+                                          ? tx.baleItemsList
+                                          : tx.biltyNo
+                                            ? inwardSaved.find(
+                                                (s) =>
+                                                  s.biltyNumber?.toLowerCase() ===
+                                                    tx.biltyNo?.toLowerCase() &&
+                                                  (!s.businessId ||
+                                                    s.businessId ===
+                                                      activeBusinessId),
+                                              )?.items || []
+                                            : [];
+                                      return (
+                                        effectiveItems.length > 0 && (
+                                          <div className="space-y-1 pt-1 border-t border-green-200">
+                                            {effectiveItems.map(
+                                              (
+                                                bi: {
+                                                  itemName?: string;
+                                                  category?: string;
+                                                  qty?: number;
+                                                  shopQty?: number;
+                                                  godownQuants?: Record<
+                                                    string,
+                                                    number
+                                                  >;
+                                                },
+                                                biIdx: number,
+                                              ) => (
+                                                <div
+                                                  key={`${bi.itemName}-${biIdx}`}
+                                                  className="text-[10px] font-bold text-gray-700"
+                                                >
+                                                  <span className="text-gray-900">
+                                                    {bi.itemName}
+                                                  </span>
+                                                  <span className="text-gray-400 ml-1">
+                                                    ({bi.category})
+                                                  </span>
+                                                  <span className="ml-2 text-green-700">
+                                                    Qty: {bi.qty}
+                                                  </span>
+                                                  <div className="flex gap-1 flex-wrap mt-1">
+                                                    {(bi.shopQty || 0) > 0 && (
+                                                      <span className="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-md border border-blue-100">
+                                                        🏪 Shop: {bi.shopQty}
                                                       </span>
-                                                    ))}
+                                                    )}
+                                                    {Object.entries(
+                                                      bi.godownQuants || {},
+                                                    )
+                                                      .filter(
+                                                        ([, v]) => (v || 0) > 0,
+                                                      )
+                                                      .map(([g, v]) => (
+                                                        <span
+                                                          key={g}
+                                                          className="text-[9px] bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded-md border border-amber-100"
+                                                        >
+                                                          🏭 {g}: {v}
+                                                        </span>
+                                                      ))}
+                                                  </div>
                                                 </div>
-                                              </div>
-                                            ),
-                                          )}
-                                        </div>
-                                      )}
+                                              ),
+                                            )}
+                                          </div>
+                                        )
+                                      );
+                                    })()}
                                   </div>
                                 </div>
                               </div>

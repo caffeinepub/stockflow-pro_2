@@ -1,26 +1,26 @@
 # StockFlow Pro
 
 ## Current State
-WarehouseTab (Queue) has two bugs in bilty/package handling:
-1. Auto-fill from Transit (via typing) does not lock the packages field, allowing users to change package count and generate wrong bale labels.
-2. Duplicate base bilty check is missing against existing Queue entries — same base bilty can be re-entered with a different package count.
+HistoryTab and DashboardTab lose item-level detail (baleItemsList) after page refresh. The bilty header info is preserved from `transactions`. But per-item details (items in bale, qty, shop/godown split) are stored in `inwardSaved` records which are never passed to either tab.
 
 ## Requested Changes (Diff)
 
 ### Add
-- Base bilty duplicate check against `pendingParcels` (Queue) in `handleLog`, both single-package and multi-package paths
+- `inwardSaved: InwardSavedEntry[]` prop to HistoryTab, DashboardTab, ItemHistoryPanel interfaces
+- Import `InwardSavedEntry` type in HistoryTab.tsx and DashboardTab.tsx
 
 ### Modify
-- `WarehouseTab.tsx` auto-fill useEffect (lines ~196–230): after setting form fields from transit match, also call `setLockedPackages(extractedPkg || null)` to lock the packages field
-- `WarehouseTab.tsx` `handleLog` multi-package path: before saving, check if base bilty already exists in `pendingParcels` (stripping X postfix), block with error if found
-- `WarehouseTab.tsx` `handleLog` single-package path: the existing `queueBiltyList` exact check should also include a base bilty check against `pendingParcels`
+- App.tsx ~line 2089: add `inwardSaved={inwardSaved}` to HistoryTab render
+- App.tsx ~line 1953: add `inwardSaved={inwardSaved}` to DashboardTab render
+- HistoryTab.tsx journey modal: include DIRECT_STOCK in type filter; cross-reference inwardSaved by bilty number to get baleItemsList when tx.baleItemsList is empty
+- DashboardTab.tsx ItemHistoryPanel: receive inwardSaved; cross-reference inwardSaved by bilty number for baleItemsList when tx.baleItemsList is empty
 
 ### Remove
-- Nothing removed
+- Nothing
 
 ## Implementation Plan
-1. In the auto-fill useEffect, add `setLockedPackages(extractedPkg || null)` after `setForm(...)` when a transit match is found
-2. In `handleLog` before both the single-package and multi-package save paths, add:
-   - Strip postfix from `bNo` to get `baseBilty`
-   - Check if any entry in `pendingParcels` has the same base bilty (strip their postfix too)
-   - If match found, block save with error: `Bilty ${baseBilty} already exists in Queue with a different package count`
+1. Add InwardSavedEntry import to HistoryTab.tsx and DashboardTab.tsx
+2. Add inwardSaved prop to all three component interfaces
+3. In App.tsx pass inwardSaved={inwardSaved} to both HistoryTab and DashboardTab
+4. In HistoryTab journey modal: add DIRECT_STOCK to type filter; fallback to inwardSaved lookup when baleItemsList is missing
+5. In DashboardTab/ItemHistoryPanel: pass inwardSaved down; fallback to inwardSaved lookup for baleItemsList

@@ -2098,6 +2098,7 @@ export default function App() {
             categories={categories}
             godowns={godowns}
             showNotification={showNotification}
+            inwardSaved={inwardSaved}
           />
         )}
         {activeTab === "inwardSaved" && currentUser.role !== "supplier" && (
@@ -2220,6 +2221,7 @@ export default function App() {
           transactions={transactions}
           activeBusinessId={activeBusinessId}
           onClose={() => setSelectedHistoryItem(null)}
+          inwardSaved={inwardSaved}
         />
 
         {/* Confirm Dialog */}

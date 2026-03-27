@@ -14,6 +14,7 @@ import type {
   AppUser,
   Category,
   InventoryItem,
+  InwardSavedEntry,
   PendingParcel,
   Transaction,
   TransitRecord,
@@ -32,6 +33,7 @@ function HistoryTab({
   categories,
   godowns,
   showNotification,
+  inwardSaved = [],
 }: {
   transactions: Transaction[];
   setConfirmDialog: (
@@ -46,6 +48,7 @@ function HistoryTab({
   categories: Category[];
   godowns: string[];
   showNotification: (m: string, t?: string) => void;
+  inwardSaved?: InwardSavedEntry[];
 }) {
   const [search, setSearch] = useState("");
   const [filterDateFrom, setFilterDateFrom] = useState("");
@@ -906,10 +909,34 @@ function HistoryTab({
           const inwardEntries = transactions.filter(
             (t) =>
               t.biltyNo?.toLowerCase() === bNo.toLowerCase() &&
-              (t.type === "INWARD" || t.type === "inward") &&
+              (t.type === "INWARD" ||
+                t.type === "inward" ||
+                t.type === "DIRECT_STOCK") &&
               (!t.businessId || t.businessId === activeBusinessId),
           );
           const inwardEntry = inwardEntries[0] || null;
+          // Cross-reference inwardSaved for baleItemsList when missing from transaction
+          const savedRecord = inwardSaved.find(
+            (s) =>
+              s.biltyNumber?.toLowerCase() === bNo.toLowerCase() &&
+              (!s.businessId || s.businessId === activeBusinessId),
+          );
+          type BaleItem = {
+            itemName?: string;
+            category?: string;
+            qty?: number;
+            godownQty?: number;
+            shopQty?: number;
+            godownBreakdown?: Record<string, number>;
+            godownQuants?: Record<string, number>;
+            saleRate?: number;
+            purchaseRate?: number;
+            attributes?: Record<string, string>;
+          };
+          const effectiveBaleItems: BaleItem[] =
+            inwardEntry?.baleItemsList && inwardEntry.baleItemsList.length > 0
+              ? (inwardEntry.baleItemsList as BaleItem[])
+              : ((savedRecord?.items || []) as BaleItem[]);
           return (
             <div className="fixed inset-0 bg-gray-900/60 z-[100] flex items-center justify-center p-4">
               <div className="bg-white rounded-[2.5rem] shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto animate-fade-in-down">
@@ -1140,60 +1167,59 @@ function HistoryTab({
                             </p>
                           )}
                           {/* Bale Items with storage distribution */}
-                          {inwardEntry.baleItemsList &&
-                            inwardEntry.baleItemsList.length > 0 && (
-                              <div className="mt-3 space-y-2">
-                                <p className="text-[10px] font-black uppercase text-green-800 tracking-widest">
-                                  Items Received
-                                </p>
-                                {inwardEntry.baleItemsList.map((bi, biIdx) => (
-                                  <div
-                                    key={`${bi.itemName}-${bi.category}-${biIdx}`}
-                                    className="bg-white border border-green-200 rounded-xl p-3 space-y-1"
-                                  >
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      <span className="font-black text-gray-900">
-                                        {bi.itemName}
+                          {effectiveBaleItems.length > 0 && (
+                            <div className="mt-3 space-y-2">
+                              <p className="text-[10px] font-black uppercase text-green-800 tracking-widest">
+                                Items Received
+                              </p>
+                              {effectiveBaleItems.map((bi, biIdx) => (
+                                <div
+                                  key={`${bi.itemName}-${bi.category}-${biIdx}`}
+                                  className="bg-white border border-green-200 rounded-xl p-3 space-y-1"
+                                >
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-black text-gray-900">
+                                      {bi.itemName}
+                                    </span>
+                                    <span className="text-[9px] font-black bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
+                                      {bi.category}
+                                    </span>
+                                    <span className="text-[9px] font-black bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                                      Qty: {bi.qty}
+                                    </span>
+                                  </div>
+                                  {Object.entries(bi.attributes || {})
+                                    .filter(([, v]) => v)
+                                    .map(([k, v]) => (
+                                      <span
+                                        key={k}
+                                        className="inline-block mr-2 text-[9px] text-indigo-600 font-bold bg-indigo-50 px-1.5 py-0.5 rounded-full"
+                                      >
+                                        {k}: {v}
                                       </span>
-                                      <span className="text-[9px] font-black bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
-                                        {bi.category}
+                                    ))}
+                                  {/* Storage distribution */}
+                                  <div className="flex gap-2 flex-wrap mt-1">
+                                    {(bi.shopQty || 0) > 0 && (
+                                      <span className="text-[9px] font-black bg-blue-50 text-blue-700 border border-blue-200 px-2 py-1 rounded-lg">
+                                        🏪 Shop: {bi.shopQty}
                                       </span>
-                                      <span className="text-[9px] font-black bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-                                        Qty: {bi.qty}
-                                      </span>
-                                    </div>
-                                    {Object.entries(bi.attributes || {})
-                                      .filter(([, v]) => v)
-                                      .map(([k, v]) => (
+                                    )}
+                                    {Object.entries(bi.godownQuants || {})
+                                      .filter(([, v]) => (v || 0) > 0)
+                                      .map(([g, v]) => (
                                         <span
-                                          key={k}
-                                          className="inline-block mr-2 text-[9px] text-indigo-600 font-bold bg-indigo-50 px-1.5 py-0.5 rounded-full"
+                                          key={g}
+                                          className="text-[9px] font-black bg-amber-50 text-amber-700 border border-amber-200 px-2 py-1 rounded-lg"
                                         >
-                                          {k}: {v}
+                                          🏭 {g}: {v}
                                         </span>
                                       ))}
-                                    {/* Storage distribution */}
-                                    <div className="flex gap-2 flex-wrap mt-1">
-                                      {(bi.shopQty || 0) > 0 && (
-                                        <span className="text-[9px] font-black bg-blue-50 text-blue-700 border border-blue-200 px-2 py-1 rounded-lg">
-                                          🏪 Shop: {bi.shopQty}
-                                        </span>
-                                      )}
-                                      {Object.entries(bi.godownQuants || {})
-                                        .filter(([, v]) => (v || 0) > 0)
-                                        .map(([g, v]) => (
-                                          <span
-                                            key={g}
-                                            className="text-[9px] font-black bg-amber-50 text-amber-700 border border-amber-200 px-2 py-1 rounded-lg"
-                                          >
-                                            🏭 {g}: {v}
-                                          </span>
-                                        ))}
-                                    </div>
                                   </div>
-                                ))}
-                              </div>
-                            )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <p className="text-[10px] text-gray-400 font-bold">
