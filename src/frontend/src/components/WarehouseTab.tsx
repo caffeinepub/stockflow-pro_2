@@ -225,6 +225,7 @@ function WarehouseTab({
         itemName: transitMatch.itemName || prev.itemName,
         packages: extractedPkg || prev.packages,
       }));
+      setLockedPackages(extractedPkg || null);
       showNotification("Auto-filled from Transit entry.", "success");
     }
   }, [biltyNumber, biltyPrefix]);
@@ -236,6 +237,18 @@ function WarehouseTab({
       biltyPrefix === "0" ? biltyNumber : `${biltyPrefix}-${biltyNumber}`;
     const queueBiltyList = existingQueueBiltyNos ?? [];
     const pkgCount = Number(form.packages) || 1;
+
+    // Block duplicate base bilty in Queue (covers different package counts)
+    const baseBilty = bNo.replace(/X\d+\(\d+\)$/i, "").toLowerCase();
+    const existsInQueue = (pendingParcels || []).some(
+      (p) =>
+        (!p.businessId || p.businessId === activeBusinessId) &&
+        (p.biltyNo || "").replace(/X\d+\(\d+\)$/i, "").toLowerCase() ===
+          baseBilty,
+    );
+    if (existsInQueue) {
+      return showNotification(`Bilty ${bNo} already exists in Queue!`, "error");
+    }
 
     if (pkgCount > 1 && baleRows.length > 0) {
       // Save received bales to Queue, pending bales to Transit
