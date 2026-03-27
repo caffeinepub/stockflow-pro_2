@@ -9,14 +9,16 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { Transaction } from "../types";
+import type { InwardSavedEntry, Transaction } from "../types";
 
 function AnalyticsTab({
   transactions,
+  inwardSaved,
   activeBusinessId,
   godowns,
 }: {
   transactions: Transaction[];
+  inwardSaved?: InwardSavedEntry[];
   activeBusinessId: string;
   godowns: string[];
 }) {
@@ -61,6 +63,32 @@ function AnalyticsTab({
         outwardQty: number;
       }
     > = {};
+    // Primary: inwardSaved is persisted to backend and survives page reload
+    if (inwardSaved && inwardSaved.length > 0) {
+      for (const entry of inwardSaved) {
+        if (entry.businessId && entry.businessId !== activeBusinessId) continue;
+        if (dateFrom && entry.savedAt < dateFrom) continue;
+        if (dateTo && entry.savedAt > dateTo) continue;
+        for (const item of entry.items) {
+          const attrs = (item as any).attributes || {};
+          const sub = Object.entries(attrs)
+            .map(([k, v]) => `${k}:${v}`)
+            .join(", ");
+          const key = `${item.category}||${item.itemName}||${sub}`;
+          if (!map[key])
+            map[key] = {
+              itemName: item.itemName,
+              category: item.category,
+              subCategory: sub,
+              inwardQty: 0,
+              outwardQty: 0,
+            };
+          map[key].inwardQty += Number(item.qty) || 0;
+        }
+      }
+      return map;
+    }
+    // Fallback: in-memory baleItemsList (only present before page reload)
     for (const t of inwardFiltered) {
       if (t.baleItemsList) {
         for (const item of t.baleItemsList) {

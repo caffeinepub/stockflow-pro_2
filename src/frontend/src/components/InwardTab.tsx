@@ -23,6 +23,7 @@ import type {
   TransitRecord,
 } from "../types";
 import { BiltyInput, DynamicFields } from "./BiltyInput";
+import { ComboInput } from "./ComboInput";
 import { ItemNameCombo } from "./ItemNameCombo";
 
 function InwardTab({
@@ -1462,6 +1463,20 @@ ${names}`,
                                           </option>
                                         ))}
                                       </select>
+                                    ) : f.type === "combo" ? (
+                                      <ComboInput
+                                        options={f.options || []}
+                                        value={bf.attributes[f.name] || ""}
+                                        onChange={(v) =>
+                                          setPerBaleForm(activeBaleIdx, {
+                                            attributes: {
+                                              ...bf.attributes,
+                                              [f.name]: v,
+                                            },
+                                          })
+                                        }
+                                        className="w-full border rounded-xl p-2 font-bold text-sm bg-white"
+                                      />
                                     ) : (
                                       <input
                                         type="text"
@@ -2495,6 +2510,21 @@ ${names}`,
                           </option>
                         ))}
                       </select>
+                    ) : f.type === "combo" ? (
+                      <ComboInput
+                        options={f.options || []}
+                        value={itemForm.attributes[f.name] || ""}
+                        onChange={(v) =>
+                          setItemForm({
+                            ...itemForm,
+                            attributes: {
+                              ...itemForm.attributes,
+                              [f.name]: v,
+                            },
+                          })
+                        }
+                        className="w-full border border-blue-200 rounded-xl p-2.5 font-bold text-sm bg-white"
+                      />
                     ) : (
                       <input
                         type="text"

@@ -13,7 +13,6 @@ function SalesTab({
   godowns: _godowns,
   activeBusinessId,
   categories,
-  actor,
 }: {
   inventory: Record<string, InventoryItem>;
   updateStock: (
@@ -72,35 +71,6 @@ function SalesTab({
   const confirmSale = async () => {
     if (saleLines.length === 0) return;
 
-    // Persist to backend canister
-    if (actor) {
-      const saleId = String(Date.now());
-      const backendEntry = {
-        id: saleId,
-        businessId: activeBusinessId,
-        createdAt: BigInt(Date.now()),
-        recordedBy: currentUser.username,
-        items: saleLines.map((line) => ({
-          category: line.category,
-          itemName: line.itemName,
-          subCategory: JSON.stringify(inventory[line.sku]?.attributes || {}),
-          qty: BigInt(line.qty),
-          rate: inventory[line.sku]?.saleRate || 0,
-        })),
-      };
-      try {
-        const result = await (actor as any).addSale(backendEntry);
-        if (result !== "ok") {
-          showNotification(`Sale failed: ${result}`, "error");
-          return;
-        }
-      } catch (e) {
-        console.error(e);
-        showNotification("Sale failed: backend error", "error");
-        return;
-      }
-    }
-
     // Immediate local UI update
     for (const line of saleLines) {
       updateStock(line.sku, inventory[line.sku], -line.qty, 0, "Main Godown");
@@ -116,7 +86,7 @@ function SalesTab({
           toLocation: "Customer",
           date: saleDate,
           user: currentUser.username,
-          notes: `Sale Ref: ${saleRef || "N/A"}`,
+          notes: `₹${inventory[line.sku]?.saleRate || 0} | Sale Ref: ${saleRef || "N/A"}`,
           businessId: activeBusinessId,
         },
         ...prev,

@@ -111,7 +111,7 @@ function SalesRecordTab({
                 </span>
                 <span className="text-xs font-bold text-gray-500">
                   {t.notes?.includes("₹")
-                    ? t.notes.match(/₹[d.]+/)?.[0] || "—"
+                    ? t.notes.match(/₹[\d.]+/)?.[0] || "—"
                     : "—"}
                 </span>
                 <span className="text-[10px] font-bold text-gray-400">

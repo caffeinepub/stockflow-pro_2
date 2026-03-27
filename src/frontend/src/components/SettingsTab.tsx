@@ -14,7 +14,7 @@ import {
   X,
 } from "lucide-react";
 import type React from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   Transaction as AppTransaction,
   AppUser,
@@ -232,6 +232,11 @@ function SettingsTab({
   setFieldComboOptions,
   customTabFields = {},
   setCustomTabFields,
+  initialSubTab,
+  categoryUnits = {},
+  setCategoryUnits,
+  itemUnitOverrides = {},
+  setItemUnitOverrides,
 }: {
   users: AppUser[];
   setUsers: React.Dispatch<React.SetStateAction<AppUser[]>>;
@@ -305,8 +310,21 @@ function SettingsTab({
   setCustomTabFields?: React.Dispatch<
     React.SetStateAction<Record<string, { key: string; label: string }[]>>
   >;
+  initialSubTab?: string;
+  categoryUnits?: Record<string, "pcs" | "dozen">;
+  setCategoryUnits?: React.Dispatch<
+    React.SetStateAction<Record<string, "pcs" | "dozen">>
+  >;
+  itemUnitOverrides?: Record<string, "pcs" | "dozen">;
+  setItemUnitOverrides?: React.Dispatch<
+    React.SetStateAction<Record<string, "pcs" | "dozen">>
+  >;
 }) {
-  const [activeSub, setActiveSub] = useState("users");
+  const [activeSub, setActiveSub] = useState(initialSubTab || "businesses");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally sync when prop changes
+  useEffect(() => {
+    if (initialSubTab) setActiveSub(initialSubTab);
+  }, [initialSubTab]);
   const [selectedFieldTab, setSelectedFieldTab] = useState("transit");
   const [newUser, setNewUser] = useState<AppUser>({
     username: "",
@@ -334,6 +352,11 @@ function SettingsTab({
       setEditUser(null);
       showNotification("User Updated");
     } else {
+      const duplicate = users.some((u) => u.username === newUser.username);
+      if (duplicate) {
+        showNotification("Username already exists", "error");
+        return;
+      }
       setUsers((prev) => [...prev, newUser]);
       showNotification("User Created");
     }
@@ -360,9 +383,9 @@ function SettingsTab({
     const fieldsToSave: CategoryField[] = editingCategoryFull.fields.map(
       (f) => ({
         name: f.name.trim(),
-        type: f.type,
+        type: f.type as "text" | "select" | "combo",
         options:
-          f.type === "select"
+          f.type === "select" || f.type === "combo"
             ? (f.optionsStr || "")
                 .split(",")
                 .map((s) => s.trim())
@@ -381,25 +404,33 @@ function SettingsTab({
     showNotification("Category Settings Saved");
   };
 
+  // Redirect non-admins away from "users" sub-tab
+  if (activeSub === "users" && settingsCurrentUser?.role !== "admin") {
+    setActiveSub("businesses");
+  }
+
+  const visibleSubs = (
+    [
+      "businesses",
+      "stock",
+      "godowns",
+      "tracking",
+      "tabnames",
+      "fieldlabels",
+      "users",
+      "columns",
+      "threshold",
+      "purchaseprices",
+      "biltyprefix",
+      "units",
+      "data",
+    ] as const
+  ).filter((sub) => sub !== "users" || settingsCurrentUser?.role === "admin");
+
   return (
     <div className="space-y-6 animate-fade-in-down relative">
       <div className="flex bg-gray-100 p-1.5 rounded-[1.5rem] font-black uppercase text-[10px] tracking-widest shadow-inner overflow-x-auto scrollbar-hide">
-        {(
-          [
-            "businesses",
-            "stock",
-            "godowns",
-            "tracking",
-            "tabnames",
-            "fieldlabels",
-            "users",
-            "columns",
-            "threshold",
-            "purchaseprices",
-            "biltyprefix",
-            "data",
-          ] as const
-        ).map((sub) => (
+        {visibleSubs.map((sub) => (
           <button
             type="button"
             key={sub}
@@ -747,7 +778,7 @@ function SettingsTab({
               />
               <input
                 required
-                type="text"
+                type="password"
                 value={newUser.password}
                 onChange={(e) =>
                   setNewUser({ ...newUser, password: e.target.value })
@@ -930,7 +961,7 @@ function SettingsTab({
               <div className="space-y-4 mb-6">
                 {editingCategoryFull.fields.map((f, i) => (
                   <div
-                    key={`field-${i}-${f.name}`}
+                    key={f.name || `field-${i}`}
                     className="bg-gray-50 p-5 rounded-2xl border relative"
                   >
                     <button
@@ -974,7 +1005,13 @@ function SettingsTab({
                           value={f.type}
                           onChange={(e) => {
                             const nf = [...editingCategoryFull.fields];
-                            nf[i] = { ...nf[i], type: e.target.value };
+                            nf[i] = {
+                              ...nf[i],
+                              type: e.target.value as
+                                | "text"
+                                | "select"
+                                | "combo",
+                            };
                             setEditingCategoryFull({
                               ...editingCategoryFull,
                               fields: nf,
@@ -984,9 +1021,10 @@ function SettingsTab({
                         >
                           <option value="text">Text</option>
                           <option value="select">Dropdown</option>
+                          <option value="combo">Combo (type + select)</option>
                         </select>
                       </div>
-                      {f.type === "select" && (
+                      {(f.type === "select" || f.type === "combo") && (
                         <div className="sm:col-span-2">
                           <p className="text-[9px] font-black uppercase text-blue-500 ml-1">
                             Options (comma separated)
@@ -1080,12 +1118,20 @@ function SettingsTab({
                   <button
                     type="button"
                     onClick={() => {
-                      const csv =
-                        "CategoryName,ItemName\nSafi,Sample Item\nLungi,Sample Lungi";
+                      const header =
+                        "Category,SubCategory,Field1Name,Field1Type,Field1Options,Field2Name,Field2Type,Field2Options,Field3Name,Field3Type,Field3Options";
+                      const note =
+                        "# Field types: text / dropbox / combo. Leave FieldOptions blank for text. Comma-separate options for dropbox/combo.";
+                      const rows = [
+                        'Lungi,Size,Length,dropbox,"2mtr,2.5mtr",Colour,dropbox,"white,mix",,',
+                        'Lungi,Dhoti,Length,dropbox,"2.5mtr,3mtr",Colour,combo,"white,mix",,',
+                        'Safi,Jasmine,Size,dropbox,"1.5mtr,2mtr",,,,,',
+                      ];
+                      const csv = `${note}\n${header}\n${rows.join("\n")}`;
                       const blob = new Blob([csv], { type: "text/csv" });
                       const a = document.createElement("a");
                       a.href = URL.createObjectURL(blob);
-                      a.download = "items_template.csv";
+                      a.download = "category_template.csv";
                       a.click();
                     }}
                     className="flex items-center gap-1 bg-blue-100 text-blue-700 px-3 py-1.5 rounded-xl text-[10px] font-black"
@@ -1108,50 +1154,113 @@ function SettingsTab({
                       if (!file) return;
                       const reader = new FileReader();
                       reader.onload = (ev) => {
-                        const rows = (ev.target?.result as string)
+                        const raw = (ev.target?.result as string)
                           .split(/\r?\n/)
-                          .filter((l) => l.trim());
-                        let count = 0;
-                        for (let i = 1; i < rows.length; i++) {
-                          const [catName, iName] = rows[i]
-                            .split(",")
-                            .map((s) => s.trim());
-                          if (!catName || !iName) continue;
-                          const catExists = categories.find(
+                          .filter((l) => l.trim() && !l.trim().startsWith("#"));
+                        // Parse CSV respecting quoted fields
+                        const parseRow = (line: string): string[] => {
+                          const result: string[] = [];
+                          let cur = "";
+                          let inQ = false;
+                          for (let ci = 0; ci < line.length; ci++) {
+                            const ch = line[ci];
+                            if (ch === '"') {
+                              inQ = !inQ;
+                            } else if (ch === "," && !inQ) {
+                              result.push(cur.trim());
+                              cur = "";
+                            } else {
+                              cur += ch;
+                            }
+                          }
+                          result.push(cur.trim());
+                          return result;
+                        };
+                        // Skip header row
+                        let catCount = 0;
+                        let itemCount = 0;
+                        const updatedCats: typeof categories = [...categories];
+                        const newInventory: typeof inventory = { ...inventory };
+                        for (let i = 1; i < raw.length; i++) {
+                          const cols = parseRow(raw[i]);
+                          const catName = cols[0]?.trim();
+                          const subCat = cols[1]?.trim();
+                          if (!catName || !subCat) continue;
+                          // Build fields from Field1..Field3 columns
+                          const fields: import("../types").CategoryField[] = [];
+                          for (let fi = 0; fi < 3; fi++) {
+                            const fn = cols[2 + fi * 3]?.trim();
+                            const ft = cols[3 + fi * 3]?.trim();
+                            const fo = cols[4 + fi * 3]?.trim();
+                            if (!fn) continue;
+                            const ftype: "text" | "select" | "combo" =
+                              ft === "dropbox" || ft === "select"
+                                ? "select"
+                                : ft === "combo"
+                                  ? "combo"
+                                  : "text";
+                            fields.push({
+                              name: fn,
+                              type: ftype,
+                              options: fo
+                                ? fo
+                                    .split(",")
+                                    .map((x) => x.trim())
+                                    .filter(Boolean)
+                                : [],
+                            });
+                          }
+                          // Upsert category
+                          const catIdx = updatedCats.findIndex(
                             (c) => c.name === catName,
                           );
-                          if (!catExists)
-                            setCategories((prev) => [
-                              ...prev,
-                              { name: catName, fields: [] },
-                            ]);
-                          const newSku = `SKU_${catName}_${iName}_${Date.now()}_${i}`;
-                          const exists = Object.values(inventory).some(
+                          if (catIdx === -1) {
+                            updatedCats.push({ name: catName, fields });
+                            catCount++;
+                          } else {
+                            // Merge fields — only add new ones
+                            for (const nf of fields) {
+                              if (
+                                !updatedCats[catIdx].fields.find(
+                                  (ef) => ef.name === nf.name,
+                                )
+                              ) {
+                                updatedCats[catIdx].fields.push(nf);
+                              }
+                            }
+                          }
+                          // Create inventory item for this subcategory row
+                          const itemName = subCat;
+                          const exists = Object.values(newInventory).some(
                             (x) =>
                               (!x.businessId ||
                                 x.businessId === activeBusinessId) &&
                               x.category === catName &&
-                              x.itemName.toLowerCase() === iName.toLowerCase(),
+                              x.itemName.toLowerCase() ===
+                                itemName.toLowerCase(),
                           );
                           if (!exists) {
-                            setInventory((prev) => ({
-                              ...prev,
-                              [newSku]: {
-                                sku: newSku,
-                                category: catName,
-                                itemName: iName,
-                                attributes: {},
-                                shop: 0,
-                                godowns: {},
-                                saleRate: 0,
-                                purchaseRate: 0,
-                                businessId: activeBusinessId,
-                              },
-                            }));
-                            count++;
+                            const newSku = `SKU_${catName}_${itemName}_${Date.now()}_${i}`;
+                            newInventory[newSku] = {
+                              sku: newSku,
+                              category: catName,
+                              itemName,
+                              attributes: {},
+                              shop: 0,
+                              godowns: {},
+                              saleRate: 0,
+                              purchaseRate: 0,
+                              businessId: activeBusinessId,
+                            };
+                            itemCount++;
                           }
                         }
-                        showNotification(`Added ${count} new items`, "success");
+                        setCategories(updatedCats);
+                        setInventory(newInventory);
+                        showNotification(
+                          `Imported: ${catCount} new categories, ${itemCount} new items`,
+                          "success",
+                        );
                       };
                       reader.readAsText(file);
                       e.target.value = "";
@@ -1888,6 +1997,133 @@ function SettingsTab({
                     </div>
                   );
                 })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeSub === "units" && (
+        <div className="space-y-8">
+          {/* Section 1: Category Defaults */}
+          <div className="bg-white p-8 rounded-[2.5rem] border shadow-sm">
+            <h4 className="font-black text-xs uppercase tracking-widest text-blue-900 mb-2">
+              Category Unit Defaults
+            </h4>
+            <p className="text-[10px] font-bold text-gray-400 mb-6">
+              Set the default unit for each category. Items in that category
+              will use this unit everywhere.
+            </p>
+            <div className="space-y-3">
+              {categories.map((cat) => {
+                const unit = categoryUnits[cat.name] || "pcs";
+                return (
+                  <div
+                    key={cat.name}
+                    className="flex items-center justify-between py-3 border-b last:border-0"
+                  >
+                    <span className="font-black text-sm text-gray-800">
+                      {cat.name}
+                    </span>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCategoryUnits?.((prev) => ({
+                            ...prev,
+                            [cat.name]: "pcs",
+                          }))
+                        }
+                        className={`px-4 py-2 rounded-xl text-[11px] font-black uppercase transition-all ${unit === "pcs" ? "bg-blue-600 text-white shadow" : "bg-gray-100 text-gray-500 hover:bg-gray-200"}`}
+                      >
+                        pcs
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCategoryUnits?.((prev) => ({
+                            ...prev,
+                            [cat.name]: "dozen",
+                          }))
+                        }
+                        className={`px-4 py-2 rounded-xl text-[11px] font-black uppercase transition-all ${unit === "dozen" ? "bg-blue-600 text-white shadow" : "bg-gray-100 text-gray-500 hover:bg-gray-200"}`}
+                      >
+                        dozen
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+              {categories.length === 0 && (
+                <p className="text-sm text-gray-400 font-bold text-center py-4">
+                  No categories yet.
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Section 2: Item Exceptions */}
+          {Object.values(categoryUnits).includes("dozen") && (
+            <div className="bg-white p-8 rounded-[2.5rem] border shadow-sm">
+              <h4 className="font-black text-xs uppercase tracking-widest text-blue-900 mb-2">
+                Item Exceptions (Override to pcs)
+              </h4>
+              <p className="text-[10px] font-bold text-gray-400 mb-6">
+                These items belong to dozen-default categories. Toggle on to
+                track them in pcs instead.
+              </p>
+              <div className="space-y-3">
+                {Object.values(inventory || {})
+                  .filter((item) => categoryUnits[item.category] === "dozen")
+                  .map((item) => {
+                    const isOverride = itemUnitOverrides[item.sku] === "pcs";
+                    return (
+                      <div
+                        key={item.sku}
+                        className="flex items-center justify-between py-3 border-b last:border-0"
+                      >
+                        <div>
+                          <span className="font-black text-sm text-gray-800">
+                            {item.itemName}
+                          </span>
+                          <span className="ml-2 text-[9px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-black uppercase">
+                            {item.category}
+                          </span>
+                        </div>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={isOverride}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setItemUnitOverrides?.((prev) => ({
+                                  ...prev,
+                                  [item.sku]: "pcs",
+                                }));
+                              } else {
+                                setItemUnitOverrides?.((prev) => {
+                                  const next = { ...prev };
+                                  delete next[item.sku];
+                                  return next;
+                                });
+                              }
+                            }}
+                            className="w-4 h-4 accent-blue-600"
+                          />
+                          <span className="text-[11px] font-black text-gray-600">
+                            Override to pcs
+                          </span>
+                        </label>
+                      </div>
+                    );
+                  })}
+                {Object.values(inventory || {}).filter(
+                  (item) => categoryUnits[item.category] === "dozen",
+                ).length === 0 && (
+                  <p className="text-sm text-gray-400 font-bold text-center py-4">
+                    No items in dozen-default categories yet.
+                  </p>
+                )}
+              </div>
             </div>
           )}
         </div>

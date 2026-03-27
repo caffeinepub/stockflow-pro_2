@@ -46,3 +46,24 @@ const getTotalGodownStock = (item: InventoryItem) => {
 };
 
 export { INITIAL_CATEGORIES, formatItemName, getTotalGodownStock };
+
+export function resolveItemUnit(
+  sku: string,
+  category: string,
+  categoryUnits: Record<string, "pcs" | "dozen">,
+  itemUnitOverrides: Record<string, "pcs" | "dozen">,
+): "pcs" | "dozen" {
+  if (itemUnitOverrides[sku]) return itemUnitOverrides[sku];
+  return categoryUnits[category] || "pcs";
+}
+
+export function formatQtyWithUnit(
+  qty: number,
+  unit: "pcs" | "dozen",
+  showDual = false,
+): string {
+  if (unit === "dozen") {
+    return showDual ? `${qty} dz (${qty * 12} pcs)` : `${qty} dz`;
+  }
+  return `${qty} pcs`;
+}

@@ -87,6 +87,7 @@ function WarehouseTab({
     arrivalDate: new Date().toISOString().split("T")[0],
     customData: {} as Record<string, string>,
   });
+  const [lockedPackages, setLockedPackages] = useState<string | null>(null);
   const [_searchTerm, _setSearchTerm] = useState("");
   const [_filterDateFrom, _setFilterDateFrom] = useState("");
   const [_filterDateTo, _setFilterDateTo] = useState("");
@@ -175,6 +176,8 @@ function WarehouseTab({
       setBiltyPrefix("0");
       setBiltyNumber(biltyStr);
     }
+    const pkgVal = moveToQueueData.packages || pkgFromPostfix || "";
+    setLockedPackages(pkgVal || null);
     setForm((prev) => ({
       ...prev,
       transportName: moveToQueueData.transportName || prev.transportName,
@@ -184,7 +187,7 @@ function WarehouseTab({
         moveToQueueData.category ||
         prev.itemCategory,
       itemName: moveToQueueData.itemName || prev.itemName,
-      packages: moveToQueueData.packages || pkgFromPostfix || prev.packages,
+      packages: pkgVal || prev.packages,
     }));
     clearMoveToQueueData?.();
   }, [moveToQueueData]);
@@ -313,6 +316,7 @@ function WarehouseTab({
       }
       setBaleRows([]);
       setBiltyNumber("");
+      setLockedPackages(null);
       setForm({
         transportName: "",
         supplier: "",
@@ -504,9 +508,18 @@ function WarehouseTab({
               type="number"
               required
               value={form.packages}
-              onChange={(e) => setForm({ ...form, packages: e.target.value })}
-              className="w-full border rounded-xl p-2.5 outline-none font-bold bg-gray-50 focus:bg-white"
+              onChange={(e) => {
+                if (lockedPackages) return;
+                setForm({ ...form, packages: e.target.value });
+              }}
+              readOnly={!!lockedPackages}
+              className={`w-full border rounded-xl p-2.5 outline-none font-bold ${lockedPackages ? "bg-gray-200 text-gray-500 cursor-not-allowed" : "bg-gray-50 focus:bg-white"}`}
             />
+            {lockedPackages && (
+              <p className="text-[10px] text-orange-600 font-bold mt-1">
+                Package count locked from transit
+              </p>
+            )}
           </div>
           <div>
             <p className="text-[10px] font-black uppercase text-gray-400 ml-1">

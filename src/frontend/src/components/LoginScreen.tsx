@@ -70,24 +70,6 @@ function LoginScreen({
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const quickLogins = [
-    {
-      label: "Admin",
-      username: "admin",
-      color: "bg-blue-100 text-blue-700 hover:bg-blue-200",
-    },
-    {
-      label: "Staff",
-      username: "staff",
-      color: "bg-green-100 text-green-700 hover:bg-green-200",
-    },
-    {
-      label: "Supplier",
-      username: "supplier",
-      color: "bg-amber-100 text-amber-700 hover:bg-amber-200",
-    },
-  ];
-
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (loading) return;
@@ -119,11 +101,6 @@ function LoginScreen({
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleQuickLogin = (u: string) => {
-    setUsername(u);
-    setPassword("password");
   };
 
   return (
@@ -171,23 +148,6 @@ function LoginScreen({
             {loading ? "Signing in..." : "Sign In"}
           </button>
         </form>
-        <div className="mt-6">
-          <p className="text-center text-gray-400 text-[10px] font-bold uppercase tracking-widest mb-3">
-            Quick Login
-          </p>
-          <div className="flex gap-2 justify-center">
-            {quickLogins.map((q) => (
-              <button
-                key={q.username}
-                type="button"
-                onClick={() => handleQuickLogin(q.username)}
-                className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-colors ${q.color}`}
-              >
-                {q.label}
-              </button>
-            ))}
-          </div>
-        </div>
       </div>
     </div>
   );

@@ -196,7 +196,32 @@ actor {
 
   func seed() {
     // Version 4 forces re-seed with staff/supplier (no suffix)
-    if (seedVersion >= 4) return;
+    if (seedVersion >= 4) {
+      // Version 5: fix categories to match real business (Safi/Lungi/Napkin)
+      if (seedVersion < 5) {
+        seedVersion := 5;
+        categories := [
+          { id = "cat1"; name = "Safi";
+            subCategories = [
+              { id = "sc1"; name = "Size";  fieldType = "text";   options = [] },
+              { id = "sc2"; name = "Color"; fieldType = "select"; options = ["black","tiranga","mix"] }
+            ]
+          },
+          { id = "cat2"; name = "Lungi";
+            subCategories = [
+              { id = "sc3"; name = "Size";  fieldType = "select"; options = ["2 mtr","2.25 mtr","2.5 mtr"] },
+              { id = "sc4"; name = "Color"; fieldType = "select"; options = ["plain white","plain colour","mix"] }
+            ]
+          },
+          { id = "cat3"; name = "Napkin";
+            subCategories = [
+              { id = "sc5"; name = "Size"; fieldType = "select"; options = ["14x21","12x18","16x24"] }
+            ]
+          }
+        ];
+      };
+      return;
+    };
     seedVersion := 4;
     businesses := [{ id = "b1"; name = "Demo Business" }];
     godowns    := [
@@ -204,16 +229,21 @@ actor {
       { id = "g2"; name = "Second Godown"; businessId = "b1" }
     ];
     categories := [
-      { id = "cat1"; name = "Footwear";
+      { id = "cat1"; name = "Safi";
         subCategories = [
-          { id = "sc1"; name = "Size";  fieldType = "select"; options = ["6","7","8","9","10"] },
-          { id = "sc2"; name = "Color"; fieldType = "select"; options = ["Black","Brown","White"] }
+          { id = "sc1"; name = "Size";  fieldType = "text";   options = [] },
+          { id = "sc2"; name = "Color"; fieldType = "select"; options = ["black","tiranga","mix"] }
         ]
       },
-      { id = "cat2"; name = "Clothing";
+      { id = "cat2"; name = "Lungi";
         subCategories = [
-          { id = "sc3"; name = "Size";   fieldType = "select"; options = ["S","M","L","XL","XXL"] },
-          { id = "sc4"; name = "Design"; fieldType = "text";   options = [] }
+          { id = "sc3"; name = "Size";  fieldType = "select"; options = ["2 mtr","2.25 mtr","2.5 mtr"] },
+          { id = "sc4"; name = "Color"; fieldType = "select"; options = ["plain white","plain colour","mix"] }
+        ]
+      },
+      { id = "cat3"; name = "Napkin";
+        subCategories = [
+          { id = "sc5"; name = "Size"; fieldType = "select"; options = ["14x21","12x18","16x24"] }
         ]
       }
     ];
@@ -225,8 +255,8 @@ actor {
     ];
     users := [
       { id = "u1"; username = "admin";     password = "password"; role = #admin;    businessIds = ["b1"]; createdAt = 0 },
-      { id = "u2"; username = "staff";    password = "password"; role = #staff;    businessIds = ["b1"]; createdAt = 0 },
-      { id = "u3"; username = "supplier"; password = "password"; role = #supplier; businessIds = ["b1"]; createdAt = 0 }
+      { id = "u2"; username = "staff";     password = "password"; role = #staff;    businessIds = ["b1"]; createdAt = 0 },
+      { id = "u3"; username = "supplier";  password = "password"; role = #supplier; businessIds = ["b1"]; createdAt = 0 }
     ];
     transportTrackers := [];
   };

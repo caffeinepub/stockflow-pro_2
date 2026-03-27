@@ -15,6 +15,7 @@ import {
   ShoppingCart,
   Truck,
   User,
+  UserCheck,
   Warehouse,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -113,15 +114,15 @@ function fromBackendCategory(c: BackendCategory): Category {
 function toBackendTransit(t: TransitRecord): BackendTransitEntry {
   return {
     id: String(t.id),
-    biltyNumber: t.biltyNo,
-    transport: t.transportName,
-    supplier: t.supplierName,
+    biltyNumber: t.biltyNo ?? "",
+    transport: t.transportName ?? "",
+    supplier: t.supplierName ?? "",
     category: t.category || t.itemCategory || "",
-    itemName: t.itemName,
+    itemName: t.itemName ?? "",
     packages: BigInt(Number.parseInt(t.packages) || 1),
-    biltyDate: t.date,
-    businessId: t.businessId,
-    enteredBy: t.addedBy,
+    biltyDate: t.date ?? "",
+    businessId: t.businessId ?? "b1",
+    enteredBy: t.addedBy ?? "",
     createdAt: BigInt(Date.now()),
   };
 }
@@ -334,10 +335,33 @@ function fromBackendDelivery(e: DeliveryEntry): DeliveryRecord {
 }
 
 function fromBackendTxRecord(e: TxRecord): Transaction {
-  const txTypeKey = Object.keys(e.txType)[0];
+  // e.txType from backend.ts is a TxType enum string (e.g. "sale", "inward")
+  // Handle both string and object forms safely
+  const txTypeRaw = e.txType as unknown;
+  let txTypeName: string;
+  if (typeof txTypeRaw === "string") {
+    txTypeName = txTypeRaw; // enum string from backend.ts decoder
+  } else if (txTypeRaw && typeof txTypeRaw === "object") {
+    txTypeName = Object.keys(txTypeRaw)[0] || "inward";
+  } else {
+    txTypeName = "inward";
+  }
+  // Map camelCase variant names to UPPER_CASE used in the app
+  const typeMap: Record<string, string> = {
+    directStock: "DIRECT_STOCK",
+    directstock: "DIRECT_STOCK",
+    inward: "INWARD",
+    sale: "SALE",
+    transfer: "TRANSFER",
+    delivery: "DELIVERY",
+  };
+  const resolvedType =
+    typeMap[txTypeName] ??
+    typeMap[txTypeName.toLowerCase()] ??
+    txTypeName.toUpperCase();
   return {
     id: Number.parseInt(e.id) || Math.floor(Math.random() * 1_000_000),
-    type: txTypeKey ? txTypeKey.toUpperCase() : "INWARD",
+    type: resolvedType,
     biltyNo: e.biltyNumber || undefined,
     businessId: e.businessId,
     date: new Date(Number(e.createdAt)).toISOString(),
@@ -349,6 +373,7 @@ function fromBackendTxRecord(e: TxRecord): Transaction {
     fromLocation: e.fromLocation || undefined,
     toLocation: e.toLocation || undefined,
     subCategory: e.subCategory || undefined,
+    itemsCount: Number(e.qty) || undefined,
   };
 }
 
@@ -363,7 +388,7 @@ function toBackendTxRecord(t: Transaction): TxRecord {
   };
   return {
     id: String(t.id),
-    businessId: t.businessId,
+    businessId: t.businessId ?? "b1",
     txType: txTypeFromString(t.type),
     biltyNumber: t.biltyNo || "",
     category: t.category || "",
@@ -372,7 +397,7 @@ function toBackendTxRecord(t: Transaction): TxRecord {
     fromLocation: t.fromLocation || "",
     toLocation: t.toLocation || "",
     transport: t.transportName || "",
-    qty: BigInt(0),
+    qty: BigInt((t as any).itemsCount || 0),
     rate: 0,
     enteredBy: t.user || "",
     notes: t.notes || "",
@@ -385,6 +410,9 @@ export default function App() {
   const [isDataLoading, setIsDataLoading] = useState(false);
 
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [settingsSubTab, setSettingsSubTab] = useState<string | undefined>(
+    undefined,
+  );
   const [notification, setNotification] = useState<{
     message: string;
     type: string;
@@ -409,6 +437,35 @@ export default function App() {
   const [pendingParcels, setPendingParcels] = useState<PendingParcel[]>([]);
   const [transitGoods, setTransitGoods] = useState<TransitRecord[]>([]);
   const [categories, setCategories] = useState<Category[]>(INITIAL_CATEGORIES);
+  const [categoryUnits, setCategoryUnits] = useState<
+    Record<string, "pcs" | "dozen">
+  >(() => {
+    try {
+      return JSON.parse(localStorage.getItem("categoryUnits") || "{}");
+    } catch {
+      return {};
+    }
+  });
+  const [itemUnitOverrides, setItemUnitOverrides] = useState<
+    Record<string, "pcs" | "dozen">
+  >(() => {
+    try {
+      return JSON.parse(localStorage.getItem("itemUnitOverrides") || "{}");
+    } catch {
+      return {};
+    }
+  });
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally persist on change
+  useEffect(() => {
+    localStorage.setItem("categoryUnits", JSON.stringify(categoryUnits));
+  }, [categoryUnits]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally persist on change
+  useEffect(() => {
+    localStorage.setItem(
+      "itemUnitOverrides",
+      JSON.stringify(itemUnitOverrides),
+    );
+  }, [itemUnitOverrides]);
   const [godowns, setGodowns] = useState<string[]>([
     "Main Godown",
     "Side Godown",
@@ -1601,12 +1658,26 @@ export default function App() {
             </>
           )}
           {currentUser.role === "admin" && (
-            <SidebarButton
-              active={activeTab === "settings"}
-              onClick={() => setActiveTab("settings")}
-              icon={Settings}
-              label={tabNames.settings}
-            />
+            <>
+              <SidebarButton
+                active={activeTab === "settings" && settingsSubTab === "users"}
+                onClick={() => {
+                  setActiveTab("settings");
+                  setSettingsSubTab("users");
+                }}
+                icon={UserCheck}
+                label="Manage Users"
+              />
+              <SidebarButton
+                active={activeTab === "settings" && settingsSubTab !== "users"}
+                onClick={() => {
+                  setActiveTab("settings");
+                  setSettingsSubTab(undefined);
+                }}
+                icon={Settings}
+                label={tabNames.settings}
+              />
+            </>
           )}
         </nav>
         <div className="p-6 border-t bg-gray-50/50">
@@ -1651,6 +1722,8 @@ export default function App() {
             transactions={transactions}
             onItemClick={(sku) => setSelectedHistoryItem(sku)}
             thresholdExcludedItems={thresholdExcludedItems}
+            categoryUnits={categoryUnits}
+            itemUnitOverrides={itemUnitOverrides}
           />
         )}
         {activeTab === "transit" && (
@@ -1830,6 +1903,7 @@ export default function App() {
         {activeTab === "analytics" && currentUser.role === "admin" && (
           <AnalyticsTab
             transactions={transactions}
+            inwardSaved={inwardSaved}
             activeBusinessId={activeBusinessId}
             godowns={godowns}
           />
@@ -1842,6 +1916,7 @@ export default function App() {
         )}
         {activeTab === "settings" && currentUser.role === "admin" && (
           <SettingsTab
+            initialSubTab={settingsSubTab}
             users={users}
             setUsers={setUsersWithBackend}
             categories={categories}
@@ -1890,6 +1965,10 @@ export default function App() {
             setFieldComboOptions={setFieldComboOptions}
             customTabFields={customTabFields}
             setCustomTabFields={setCustomTabFields}
+            categoryUnits={categoryUnits}
+            setCategoryUnits={setCategoryUnits}
+            itemUnitOverrides={itemUnitOverrides}
+            setItemUnitOverrides={setItemUnitOverrides}
           />
         )}
 
@@ -2072,12 +2151,26 @@ export default function App() {
           </>
         )}
         {currentUser.role === "admin" && (
-          <NavButton
-            active={activeTab === "settings"}
-            onClick={() => setActiveTab("settings")}
-            icon={Settings}
-            label="Admin"
-          />
+          <>
+            <NavButton
+              active={activeTab === "settings" && settingsSubTab === "users"}
+              onClick={() => {
+                setActiveTab("settings");
+                setSettingsSubTab("users");
+              }}
+              icon={UserCheck}
+              label="Users"
+            />
+            <NavButton
+              active={activeTab === "settings" && settingsSubTab !== "users"}
+              onClick={() => {
+                setActiveTab("settings");
+                setSettingsSubTab(undefined);
+              }}
+              icon={Settings}
+              label="Admin"
+            />
+          </>
         )}
       </nav>
 

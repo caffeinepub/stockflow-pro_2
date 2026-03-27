@@ -2,7 +2,7 @@
 
 export interface CategoryField {
   name: string;
-  type: string;
+  type: "text" | "select" | "combo";
   options?: string[];
 }
 export interface Category {

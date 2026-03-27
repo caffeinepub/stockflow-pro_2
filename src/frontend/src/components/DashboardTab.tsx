@@ -8,7 +8,11 @@ import {
 } from "lucide-react";
 import type React from "react";
 import { useState } from "react";
-import { getTotalGodownStock } from "../constants";
+import {
+  formatQtyWithUnit,
+  getTotalGodownStock,
+  resolveItemUnit,
+} from "../constants";
 import type { InventoryItem, Transaction } from "../types";
 
 function DashboardTab({
@@ -18,6 +22,8 @@ function DashboardTab({
   transactions,
   onItemClick,
   thresholdExcludedItems = [],
+  categoryUnits = {},
+  itemUnitOverrides = {},
 }: {
   inventory: Record<string, InventoryItem>;
   minStockThreshold: number;
@@ -25,6 +31,8 @@ function DashboardTab({
   transactions: Transaction[];
   onItemClick?: (sku: string) => void;
   thresholdExcludedItems?: string[];
+  categoryUnits?: Record<string, "pcs" | "dozen">;
+  itemUnitOverrides?: Record<string, "pcs" | "dozen">;
 }) {
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -274,20 +282,52 @@ function DashboardTab({
                             })()}
                           </td>
                           <td className="px-6 py-4 text-center font-black text-green-700 text-lg">
-                            {Number(item.shop || 0)}
+                            {(() => {
+                              const unit = resolveItemUnit(
+                                item.sku,
+                                item.category,
+                                categoryUnits,
+                                itemUnitOverrides,
+                              );
+                              return formatQtyWithUnit(
+                                Number(item.shop || 0),
+                                unit,
+                                true,
+                              );
+                            })()}
                           </td>
                           <td className="px-6 py-4 text-center font-black text-amber-700">
                             <div className="text-lg">
-                              {getTotalGodownStock(item)}
+                              {(() => {
+                                const unit = resolveItemUnit(
+                                  item.sku,
+                                  item.category,
+                                  categoryUnits,
+                                  itemUnitOverrides,
+                                );
+                                return formatQtyWithUnit(
+                                  getTotalGodownStock(item),
+                                  unit,
+                                  true,
+                                );
+                              })()}
                             </div>
                             <div className="text-[9px] text-gray-400 font-bold mt-0.5 text-left">
                               {Object.entries(item.godowns || {})
                                 .filter(([, v]) => Number(v) > 0)
-                                .map(([g, v]) => (
-                                  <span key={g} className="block">
-                                    {g}: {v}
-                                  </span>
-                                ))}
+                                .map(([g, v]) => {
+                                  const unit = resolveItemUnit(
+                                    item.sku,
+                                    item.category,
+                                    categoryUnits,
+                                    itemUnitOverrides,
+                                  );
+                                  return (
+                                    <span key={g} className="block">
+                                      {g}: {formatQtyWithUnit(Number(v), unit)}
+                                    </span>
+                                  );
+                                })}
                             </div>
                           </td>
                           <td className="px-6 py-4 text-right font-black text-blue-700 text-lg">
