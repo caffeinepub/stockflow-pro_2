@@ -255,7 +255,9 @@ function SettingsTab({
     d: { message: string; onConfirm: () => void } | null,
   ) => void;
   exportDatabase: () => void | Promise<void>;
-  importDatabase: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  importDatabase: (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => void | Promise<void>;
   showNotification: (m: string, t?: string) => void;
   businesses: Business[];
   setBusinesses: React.Dispatch<React.SetStateAction<Business[]>>;

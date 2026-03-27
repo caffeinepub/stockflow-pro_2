@@ -1422,10 +1422,13 @@ export default function App() {
   const importDatabase = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    e.target.value = "";
     const reader = new FileReader();
-    reader.onload = (evt) => {
+    reader.onload = async (evt) => {
       try {
         const data = JSON.parse(evt.target?.result as string);
+
+        // 1. Restore local state immediately
         if (data.inventory) setInventory(data.inventory);
         if (data.transactions) setTransactions(data.transactions);
         if (data.pendingParcels) setPendingParcels(data.pendingParcels);
@@ -1442,13 +1445,127 @@ export default function App() {
         if (data.businesses) setBusinesses(data.businesses);
         if (data.activeBusinessId) setActiveBusinessId(data.activeBusinessId);
         if (data.deliveryRecords) setDeliveryRecords(data.deliveryRecords);
-        showNotification("System Restore Complete");
-      } catch {
-        showNotification("Corrupt Backup File", "error");
+
+        if (!actor) {
+          showNotification(
+            "System Restore Complete (local only — reconnect to sync backend)",
+          );
+          return;
+        }
+
+        showNotification("Syncing restore to backend — please wait...", "info");
+
+        // 2. Save app settings to Motoko
+        const settings = {
+          fieldLabels: data.fieldLabels || {},
+          requiredFields: data.requiredFields || {},
+          fieldOrder: data.fieldOrder || {},
+          fieldTypes: data.fieldTypes || {},
+          fieldComboOptions: data.fieldComboOptions || {},
+        };
+        await (actor as any).saveAppSettings(JSON.stringify(settings));
+
+        // 3. Clear existing categories and restore from backup
+        const existingCats = await (actor as any).getCategories();
+        await Promise.all(
+          existingCats.map((c: any) => (actor as any).deleteCategory(c.id)),
+        );
+        if (data.categories) {
+          for (const cat of data.categories as Category[]) {
+            const catId = cat.name.toLowerCase().replace(/\s+/g, "-");
+            await (actor as any).addCategory(catId, cat.name);
+            for (const f of cat.fields) {
+              await (actor as any).addSubCategory(catId, {
+                id: f.name.toLowerCase().replace(/\s+/g, "-"),
+                name: f.name,
+                fieldType: f.type,
+                options: f.options || [],
+              });
+            }
+          }
+        }
+
+        // 4. Restore inventory (upserts by ID — safe to call repeatedly)
+        if (data.inventory) {
+          await Promise.all(
+            Object.values(data.inventory as Record<string, InventoryItem>).map(
+              (item) =>
+                (actor as any).addInventoryItem(toBackendInventory(item)),
+            ),
+          );
+        }
+
+        // 5. Clear & restore transit entries
+        const bizIds: string[] = (data.businesses || businesses).map(
+          (b: any) => b.id || b,
+        );
+        const existingTransit = (
+          await Promise.all(
+            bizIds.map((bId: string) => (actor as any).getTransitEntries(bId)),
+          )
+        ).flat();
+        await Promise.all(
+          existingTransit.map((e: any) =>
+            (actor as any).deleteTransitEntry(e.id),
+          ),
+        );
+        if (data.transitGoods) {
+          await Promise.all(
+            (data.transitGoods as TransitRecord[]).map((t) =>
+              (actor as any).addTransitEntry(toBackendTransit(t)),
+            ),
+          );
+        }
+
+        // 6. Clear & restore transaction history
+        const existingTxs = (
+          await Promise.all(
+            bizIds.map((bId: string) => (actor as any).getTxHistory(bId)),
+          )
+        ).flat();
+        await Promise.all(
+          existingTxs.map((t: any) => (actor as any).deleteTxRecord(t.id)),
+        );
+        if (data.transactions) {
+          await Promise.all(
+            (data.transactions as Transaction[]).map((t) =>
+              (actor as any).addTxRecord(toBackendTxRecord(t)),
+            ),
+          );
+        }
+
+        // 7. Clear & restore inward saved
+        const existingInward = (
+          await Promise.all(
+            bizIds.map((bId: string) => (actor as any).getInwardSaved(bId)),
+          )
+        ).flat();
+        await Promise.all(
+          existingInward.map((e: any) =>
+            (actor as any).deleteInwardSaved(e.id),
+          ),
+        );
+        if (data.pendingParcels) {
+          // pendingParcels in backup are queue entries — restore to backend
+          await Promise.all(
+            (data.pendingParcels as PendingParcel[]).map((p) =>
+              (actor as any).addQueueEntry(toBackendQueue(p)),
+            ),
+          );
+        }
+
+        showNotification(
+          "System Restore Complete — all data synced to backend",
+        );
+      } catch (err) {
+        console.error("Restore error:", err);
+        showNotification(
+          `Restore failed: ${err instanceof Error ? err.message : String(err)}`,
+          "error",
+        );
       }
     };
     reader.readAsText(file);
-    e.target.value = "";
   };
 
   const allSuppliers = useMemo(() => {
