@@ -307,6 +307,8 @@ export interface backendInterface {
     deleteTransitEntry(id: string): Promise<void>;
     deleteTransportTracker(id: string): Promise<void>;
     deleteTxRecord(id: string): Promise<void>;
+    saveAppSettings(json: string): Promise<void>;
+    getAppSettings(): Promise<string>;
     deleteUser(id: string): Promise<void>;
     getBiltyPrefixes(): Promise<Array<BiltyPrefix>>;
     getBusinesses(): Promise<Array<Business>>;
@@ -718,6 +720,34 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.deleteTxRecord(arg0);
+            return result;
+        }
+    }
+    async saveAppSettings(arg0: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.saveAppSettings(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.saveAppSettings(arg0);
+            return result;
+        }
+    }
+    async getAppSettings(): Promise<string> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getAppSettings();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getAppSettings();
             return result;
         }
     }

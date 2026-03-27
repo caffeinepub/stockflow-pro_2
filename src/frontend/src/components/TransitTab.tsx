@@ -43,6 +43,7 @@ function TransitTab({
   transactions,
   inwardSaved,
   fieldLabels,
+  requiredFields,
   supplierOptions,
   transportOptions,
 }: {
@@ -65,6 +66,7 @@ function TransitTab({
   transactions?: Transaction[];
   inwardSaved?: InwardSavedEntry[];
   fieldLabels?: Record<string, Record<string, string>>;
+  requiredFields?: Record<string, Record<string, boolean>>;
   supplierOptions?: string[];
   transportOptions?: string[];
 }) {
@@ -145,6 +147,29 @@ function TransitTab({
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (!biltyNumber) return showNotification("Bilty number required", "error");
+    const transitReq = requiredFields?.transit || {};
+    if (transitReq.packages && !form.packages?.trim()) {
+      return showNotification("Packages is required", "error");
+    }
+    if (transitReq.supplier && !form.supplierName?.trim()) {
+      return showNotification("Supplier is required", "error");
+    }
+    if (transitReq.transporter && !(form as any).transporter?.trim()) {
+      return showNotification("Transporter is required", "error");
+    }
+    for (const [key, isReq] of Object.entries(transitReq)) {
+      if (
+        isReq &&
+        key !== "packages" &&
+        key !== "supplier" &&
+        key !== "transporter"
+      ) {
+        const val = (form as any)[key];
+        if (!val || !String(val).trim()) {
+          return showNotification(`${key} is required`, "error");
+        }
+      }
+    }
     const bNo =
       biltyPrefix === "0" ? biltyNumber : `${biltyPrefix}-${biltyNumber}`;
     const pkgCount = Number(form.packages) || 1;

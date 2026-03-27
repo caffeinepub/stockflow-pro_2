@@ -28,6 +28,7 @@ function DeliveryTab({
   onDeliveredBilty,
   actor,
   onInventoryRefresh,
+  requiredFields,
 }: {
   inventory: Record<string, InventoryItem>;
   setInventory: React.Dispatch<
@@ -54,6 +55,7 @@ function DeliveryTab({
   onDeliveredBilty?: (biltyNo: string) => void;
   actor?: any;
   onInventoryRefresh?: () => Promise<void>;
+  requiredFields?: Record<string, Record<string, boolean>>;
 }) {
   const [viewMode, setViewMode] = useState<"new" | "timeline">("new");
   const [sourceType, setSourceType] = useState<"GODOWN" | "QUEUE">("GODOWN");
@@ -103,8 +105,11 @@ function DeliveryTab({
   };
 
   const handleSaveDelivery = async () => {
+    const deliveryReq = requiredFields?.delivery || {};
     if (!customerName.trim())
-      return showNotification("Customer name required", "error");
+      return showNotification("Customer Name is required", "error");
+    if (deliveryReq.customerPhone && !customerPhone.trim())
+      return showNotification("Customer Phone is required", "error");
     if (!selectedGodown) return showNotification("Select a godown", "error");
     const validItems = deliveryItems.filter(
       (i) => i.itemName && Number(i.qty) > 0,

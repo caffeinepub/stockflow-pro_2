@@ -13,6 +13,7 @@ function SalesTab({
   godowns: _godowns,
   activeBusinessId,
   categories,
+  requiredFields,
 }: {
   inventory: Record<string, InventoryItem>;
   updateStock: (
@@ -29,6 +30,7 @@ function SalesTab({
   activeBusinessId: string;
   categories: Category[];
   actor?: any;
+  requiredFields?: Record<string, Record<string, boolean>>;
 }) {
   const [saleLines, setSaleLines] = useState<
     { sku: string; itemName: string; category: string; qty: number }[]
@@ -43,6 +45,19 @@ function SalesTab({
 
   const addLine = () => {
     if (!lineItemName || !lineQty) return;
+    const salesReq = requiredFields?.sales || {};
+    if (salesReq.category && !lineCategory.trim()) {
+      showNotification("Category is required", "error");
+      return;
+    }
+    if (salesReq.itemName && !lineItemName.trim()) {
+      showNotification("Item Name is required", "error");
+      return;
+    }
+    if (salesReq.qty && !lineQty.trim()) {
+      showNotification("Qty is required", "error");
+      return;
+    }
     const sku = Object.keys(inventory).find(
       (s) =>
         (!inventory[s].businessId ||

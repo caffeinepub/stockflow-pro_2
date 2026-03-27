@@ -774,6 +774,23 @@ export default function App() {
         transactionsRef.current = transactionsData;
 
         setTransfers(backendTransfers as TransferEntry[]);
+
+        // Load app settings (fieldLabels, requiredFields, etc.) from Motoko
+        try {
+          const settingsJson = await (actor as any).getAppSettings();
+          if (settingsJson && settingsJson !== "{}") {
+            const settings = JSON.parse(settingsJson);
+            if (settings.fieldLabels) setFieldLabels(settings.fieldLabels);
+            if (settings.requiredFields)
+              setRequiredFields(settings.requiredFields);
+            if (settings.fieldOrder) setFieldOrder(settings.fieldOrder);
+            if (settings.fieldTypes) setFieldTypes(settings.fieldTypes);
+            if (settings.fieldComboOptions)
+              setFieldComboOptions(settings.fieldComboOptions);
+          }
+        } catch (_e) {
+          // settings load failure is non-critical
+        }
         setIsDataLoading(false);
       } catch (e) {
         console.error("Failed to load data from backend:", e);
@@ -1043,6 +1060,33 @@ export default function App() {
       setActiveTab("transit");
   }, [currentUser, activeTab]);
 
+  // Save app settings to Motoko whenever they change
+  useEffect(() => {
+    if (!actor) return;
+    const timer = setTimeout(() => {
+      const settings = {
+        fieldLabels,
+        requiredFields,
+        fieldOrder,
+        fieldTypes,
+        fieldComboOptions,
+      };
+      (actor as any)
+        .saveAppSettings(JSON.stringify(settings))
+        .catch((_e: unknown) => {
+          console.warn("[StockFlow] saveAppSettings failed:", _e);
+        });
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [
+    actor,
+    fieldLabels,
+    requiredFields,
+    fieldOrder,
+    fieldTypes,
+    fieldComboOptions,
+  ]);
+
   // Morning backup reminder for admin
   useEffect(() => {
     if (currentUser?.role === "admin") {
@@ -1271,34 +1315,108 @@ export default function App() {
     });
   };
 
-  const exportDatabase = () => {
+  const exportDatabase = async () => {
+    showNotification("Preparing backup — fetching latest data...", "info");
+    let freshInventory = inventory;
+    let freshTransactions = transactions;
+    let freshTransitGoods = transitGoods;
+    let freshCategories = categories;
+    let freshGodowns = godowns;
+    let freshUsers = users;
+    let freshBusinesses = businesses;
+    let freshBiltyPrefixes = biltyPrefixes;
+
+    if (actor) {
+      try {
+        const allBusinessIds = businesses.map((b) => b.id);
+        const [
+          backendUsers,
+          backendBusinessesFresh,
+          backendGodowns,
+          backendCats,
+          backendPrefixes,
+          ...perBusinessResults
+        ] = await Promise.all([
+          actor.getUsers(),
+          actor.getBusinesses(),
+          actor.getGodowns(),
+          actor.getCategories(),
+          actor.getBiltyPrefixes(),
+          ...allBusinessIds.flatMap((bId) => [
+            (actor as any).getInventory(bId),
+            (actor as any).getTxHistory(bId),
+            (actor as any).getTransitEntries(bId),
+          ]),
+        ]);
+
+        freshUsers = backendUsers.map(fromBackendUser) as AppUser[];
+        freshBusinesses = backendBusinessesFresh.map((b: any) => ({
+          id: b.id,
+          name: b.name,
+          description: b.description ?? "",
+        }));
+        freshGodowns = backendGodowns.map((g: any) => g.name);
+        freshCategories = backendCats.map(fromBackendCategory);
+        freshBiltyPrefixes = backendPrefixes.map((p: any) => p.prefix);
+
+        const invMap: Record<string, InventoryItem> = {};
+        freshTransactions = [];
+        freshTransitGoods = [];
+        for (let i = 0; i < allBusinessIds.length; i++) {
+          const inv = perBusinessResults[i * 3] as any[];
+          const txs = perBusinessResults[i * 3 + 1] as any[];
+          const transit = perBusinessResults[i * 3 + 2] as any[];
+          for (const item of inv) {
+            invMap[(item as any).id] = item as InventoryItem;
+          }
+          freshTransactions = [
+            ...freshTransactions,
+            ...txs.map(fromBackendTxRecord),
+          ];
+          freshTransitGoods = [
+            ...freshTransitGoods,
+            ...transit.map(fromBackendTransit),
+          ];
+        }
+        freshInventory = invMap;
+      } catch (_err) {
+        showNotification(
+          "Could not fetch latest backend data — using cached state for backup",
+          "error",
+        );
+      }
+    }
+
     const data = {
-      inventory,
-      transactions,
+      inventory: freshInventory,
+      transactions: freshTransactions,
       pendingParcels,
-      transitGoods,
+      transitGoods: freshTransitGoods,
       fieldLabels,
       requiredFields,
       fieldOrder,
       fieldTypes,
       fieldComboOptions,
-      categories,
-      godowns,
-      biltyPrefixes,
+      categories: freshCategories,
+      godowns: freshGodowns,
+      biltyPrefixes: freshBiltyPrefixes,
       customColumns,
-      users,
+      users: freshUsers,
       minStockThreshold,
-      businesses,
+      businesses: freshBusinesses,
       activeBusinessId,
       deliveryRecords,
+      exportedAt: new Date().toISOString(),
+      appVersion: "StockFlow Pro",
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], {
       type: "application/json",
     });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.download = `StockFlow_Backup_${Date.now()}.json`;
+    link.download = `StockFlow_Backup_${new Date().toISOString().slice(0, 10)}_${Date.now()}.json`;
     link.click();
+    showNotification("Backup downloaded successfully");
   };
 
   const importDatabase = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1745,6 +1863,7 @@ export default function App() {
             transactions={transactions}
             inwardSaved={inwardSaved}
             fieldLabels={fieldLabels}
+            requiredFields={requiredFields}
             supplierOptions={allSuppliers}
             transportOptions={allTransporters}
           />
@@ -1802,6 +1921,7 @@ export default function App() {
             setInwardSaved={setInwardSavedWithBackend}
             inwardSaved={inwardSaved}
             fieldLabels={fieldLabels}
+            requiredFields={requiredFields}
             deliveredBilties={deliveredBilties}
           />
         )}
@@ -1830,6 +1950,8 @@ export default function App() {
             transfers={_transfers}
             setTransfers={setTransfers}
             onInventoryRefresh={refreshInventory}
+            requiredFields={requiredFields}
+            users={users}
           />
         )}
         {activeTab === "sales" && currentUser.role === "admin" && (
@@ -1843,6 +1965,7 @@ export default function App() {
             activeBusinessId={activeBusinessId}
             categories={categories}
             actor={actor}
+            requiredFields={requiredFields}
           />
         )}
         {activeTab === "history" && currentUser.role !== "supplier" && (
@@ -1898,6 +2021,7 @@ export default function App() {
             onDeliveredBilty={(biltyNo) =>
               setDeliveredBilties((prev) => [...new Set([...prev, biltyNo])])
             }
+            requiredFields={requiredFields}
           />
         )}
         {activeTab === "analytics" && currentUser.role === "admin" && (

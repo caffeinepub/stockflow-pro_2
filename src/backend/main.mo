@@ -187,6 +187,7 @@ actor {
   stable var deliveries        : [DeliveryEntry]    = [];
   stable var sales             : [SaleEntry]        = [];
   stable var txHistory         : [TxRecord]         = [];
+  stable var appSettings       : Text               = "{}";
 
   let accessControlState = AccessControl.initState();
   include MixinAuthorization(accessControlState);
@@ -723,6 +724,15 @@ actor {
 
   public func deleteTxRecord(id : Text) : async () {
     txHistory := Array.filter(txHistory, func(t : TxRecord) : Bool { t.id != id });
+  };
+
+
+  public func saveAppSettings(json : Text) : async () {
+    appSettings := json;
+  };
+
+  public query func getAppSettings() : async Text {
+    appSettings
   };
 
   public shared ({ caller }) func getCurrentUser() : async Text {

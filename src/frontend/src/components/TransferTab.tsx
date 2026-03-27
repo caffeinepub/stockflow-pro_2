@@ -1,6 +1,6 @@
 import { ArrowRightLeft, RefreshCw, Trash2, X } from "lucide-react";
 import type React from "react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { getTotalGodownStock } from "../constants";
 import type { AppUser, InventoryItem, Transaction } from "../types";
 
@@ -15,6 +15,8 @@ function TransferTab({
   actor,
   setTransfers,
   onInventoryRefresh,
+  requiredFields,
+  users,
 }: {
   inventory: Record<string, InventoryItem>;
   updateStock?: (
@@ -33,6 +35,8 @@ function TransferTab({
   setTransfers?: React.Dispatch<React.SetStateAction<any[]>>;
   actor?: any;
   onInventoryRefresh?: () => Promise<void>;
+  requiredFields?: Record<string, Record<string, boolean>>;
+  users?: AppUser[];
 }) {
   const [mode, setMode] = useState("G2S");
   const [targetG, setTargetG] = useState(godowns?.[0] || "Main Godown");
@@ -51,8 +55,19 @@ function TransferTab({
       fromLoc: string;
       toLoc: string;
       saleRate?: number;
+      staffName?: string;
     }>
   >([]);
+
+  const [staffName, setStaffName] = useState("");
+  const [showStaffDropdown, setShowStaffDropdown] = useState(false);
+  const staffInputRef = useRef<HTMLDivElement>(null);
+
+  const filteredStaff = (users || []).filter(
+    (u) =>
+      (u.role === "staff" || u.role === "admin") &&
+      u.username.toLowerCase().includes(staffName.toLowerCase()),
+  );
 
   const filteredSkus = Object.keys(inventory || {})
     .filter((s) => {
@@ -69,6 +84,15 @@ function TransferTab({
   const handleAddToTransferList = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedSku || !qty) return;
+    const transferReq = requiredFields?.transfer || {};
+    if (transferReq.qty && !qty.trim()) {
+      showNotification("Qty is required", "error");
+      return;
+    }
+    if (transferReq.item && !selectedSku) {
+      showNotification("Item is required", "error");
+      return;
+    }
     const item = inventory[selectedSku];
     const qVal = Number(qty);
     let fromLoc = "";
@@ -97,12 +121,14 @@ function TransferTab({
         fromLoc,
         toLoc,
         saleRate: item.saleRate,
+        staffName: staffName || undefined,
       },
     ]);
     showNotification("Added to transfer list", "success");
     setQty("");
     setSelectedSku(null);
     setSearch("");
+    setStaffName("");
   };
 
   const handleTransfer = (e: React.FormEvent) => {
@@ -132,7 +158,7 @@ function TransferTab({
             itemsCount: pt.qty,
             fromLocation: pt.fromLoc,
             toLocation: pt.toLoc,
-            transferredBy: currentUser.username,
+            transferredBy: pt.staffName || currentUser.username,
             subCategory: attrStr || undefined,
             notes: `${item.itemName} · ${pt.qty} pcs · ${pt.fromLoc} → ${pt.toLoc}`,
           },
@@ -154,7 +180,7 @@ function TransferTab({
             fromType: pt.mode === "G2S" ? "godown" : "shop",
             toId: pt.toLoc,
             toType: pt.mode === "G2S" ? "shop" : "godown",
-            transferredBy: currentUser?.username || "",
+            transferredBy: pt.staffName || currentUser?.username || "",
           };
           const result = await actor.postTransfer(transferEntry);
           if (result !== "ok") {
@@ -351,10 +377,53 @@ function TransferTab({
                   placeholder="0"
                 />
               </div>
+              <div className="sm:col-span-2" ref={staffInputRef}>
+                <p className="text-[10px] font-black uppercase text-purple-900 ml-1 mb-1">
+                  Staff Name (Who is taking goods?)
+                </p>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={staffName}
+                    onChange={(e) => {
+                      setStaffName(e.target.value);
+                      setShowStaffDropdown(true);
+                    }}
+                    onFocus={() => setShowStaffDropdown(true)}
+                    onBlur={() =>
+                      setTimeout(() => setShowStaffDropdown(false), 150)
+                    }
+                    className="w-full border border-purple-200 rounded-2xl p-4 font-bold outline-none bg-white shadow-sm focus:ring-2 focus:ring-purple-400 transition-all"
+                    placeholder="Type name or select from list..."
+                    data-ocid="transfer.staff_input"
+                  />
+                  {showStaffDropdown && filteredStaff.length > 0 && (
+                    <div className="absolute z-20 w-full bg-white border border-purple-100 mt-1 rounded-2xl shadow-2xl overflow-hidden">
+                      {filteredStaff.map((u) => (
+                        <button
+                          key={u.username}
+                          type="button"
+                          onMouseDown={() => {
+                            setStaffName(u.username);
+                            setShowStaffDropdown(false);
+                          }}
+                          className="w-full text-left px-5 py-3 hover:bg-purple-50 transition-colors font-bold text-sm text-gray-800 flex items-center gap-2"
+                        >
+                          <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">
+                            {u.role}
+                          </span>
+                          {u.username}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
               <button
                 type="button"
                 onClick={handleTransfer}
                 className="sm:col-span-2 bg-purple-600 text-white font-black py-5 rounded-2xl uppercase tracking-widest text-xs shadow-xl shadow-purple-200 active:scale-95 transition-transform"
+                data-ocid="transfer.add_button"
               >
                 ＋ Add to Transfer List
               </button>
@@ -394,6 +463,11 @@ function TransferTab({
                   <p className="text-[10px] font-black text-purple-700 mt-0.5">
                     {pt.fromLoc} → {pt.toLoc} · {pt.qty} pcs
                   </p>
+                  {pt.staffName && (
+                    <p className="text-[10px] font-black text-indigo-600 mt-0.5">
+                      👤 {pt.staffName}
+                    </p>
+                  )}
                   {pt.saleRate ? (
                     <p className="text-[10px] font-black text-green-600 mt-0.5">
                       ₹{pt.saleRate}/unit

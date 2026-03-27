@@ -254,7 +254,7 @@ function SettingsTab({
   setConfirmDialog: (
     d: { message: string; onConfirm: () => void } | null,
   ) => void;
-  exportDatabase: () => void;
+  exportDatabase: () => void | Promise<void>;
   importDatabase: (e: React.ChangeEvent<HTMLInputElement>) => void;
   showNotification: (m: string, t?: string) => void;
   businesses: Business[];
@@ -1178,9 +1178,7 @@ function SettingsTab({
                         };
                         // Skip header row
                         let catCount = 0;
-                        let itemCount = 0;
                         const updatedCats: typeof categories = [...categories];
-                        const newInventory: typeof inventory = { ...inventory };
                         for (let i = 1; i < raw.length; i++) {
                           const cols = parseRow(raw[i]);
                           const catName = cols[0]?.trim();
@@ -1229,36 +1227,10 @@ function SettingsTab({
                               }
                             }
                           }
-                          // Create inventory item for this subcategory row
-                          const itemName = subCat;
-                          const exists = Object.values(newInventory).some(
-                            (x) =>
-                              (!x.businessId ||
-                                x.businessId === activeBusinessId) &&
-                              x.category === catName &&
-                              x.itemName.toLowerCase() ===
-                                itemName.toLowerCase(),
-                          );
-                          if (!exists) {
-                            const newSku = `SKU_${catName}_${itemName}_${Date.now()}_${i}`;
-                            newInventory[newSku] = {
-                              sku: newSku,
-                              category: catName,
-                              itemName,
-                              attributes: {},
-                              shop: 0,
-                              godowns: {},
-                              saleRate: 0,
-                              purchaseRate: 0,
-                              businessId: activeBusinessId,
-                            };
-                            itemCount++;
-                          }
                         }
                         setCategories(updatedCats);
-                        setInventory(newInventory);
                         showNotification(
-                          `Imported: ${catCount} new categories, ${itemCount} new items`,
+                          `Imported: ${catCount} categories updated`,
                           "success",
                         );
                       };

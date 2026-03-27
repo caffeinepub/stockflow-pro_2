@@ -50,6 +50,7 @@ function InwardTab({
   setInwardSaved,
   inwardSaved,
   fieldLabels,
+  requiredFields,
   deliveredBilties,
 }: {
   inventory: Record<string, InventoryItem>;
@@ -91,6 +92,7 @@ function InwardTab({
   setInwardSaved?: React.Dispatch<React.SetStateAction<InwardSavedEntry[]>>;
   inwardSaved?: InwardSavedEntry[];
   fieldLabels?: Record<string, Record<string, string>>;
+  requiredFields?: Record<string, Record<string, boolean>>;
   deliveredBilties?: string[];
 }) {
   const _lbl = (key: string, def: string) => fieldLabels?.inward?.[key] || def;
@@ -454,6 +456,17 @@ function InwardTab({
 
   const handleFinalSave = () => {
     if (baleItems.length === 0) return;
+    // Validate required fields for biltyNo and packages
+    const inwardReq = requiredFields?.inward || {};
+    if (inwardReq.biltyNo && !isDirectEntry && !biltyNumber.trim()) {
+      showNotification("Bilty No is required", "error");
+      return;
+    }
+    if (inwardReq.packages && !inwardPackages) {
+      showNotification("Packages is required", "error");
+      return;
+    }
+
     // Check duplicate INWARD bilty
     if (!isDirectEntry) {
       const bNo =
@@ -669,6 +682,33 @@ ${names}`,
 
   const addItemToBale = (e: React.FormEvent) => {
     e.preventDefault();
+    // Validate required fields for inward
+    const inwardRequired = requiredFields?.inward || {};
+    const fieldLabelMap: Record<string, string> = {
+      category: "Category",
+      itemName: "Item Name",
+      shopQty: "Shop Qty",
+      saleRate: "Sale Rate",
+      purchaseRate: "Purchase Rate",
+    };
+    for (const [key, label] of Object.entries(fieldLabelMap)) {
+      if (inwardRequired[key] && !String((itemForm as any)[key] || "").trim()) {
+        showNotification(`${label} is required`, "error");
+        return;
+      }
+    }
+    // Validate custom data fields (Size, Colour, etc.)
+    const hardcodedKeys = new Set(Object.keys(fieldLabelMap));
+    for (const [key, isRequired] of Object.entries(inwardRequired)) {
+      if (isRequired && !hardcodedKeys.has(key)) {
+        const val = itemForm.customData?.[key];
+        if (!val || !String(val).trim()) {
+          showNotification(`${key} is required`, "error");
+          return;
+        }
+      }
+    }
+
     const sku = generateSku(
       itemForm.category,
       itemForm.itemName,
