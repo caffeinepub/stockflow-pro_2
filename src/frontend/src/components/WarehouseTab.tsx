@@ -88,6 +88,7 @@ function WarehouseTab({
     customData: {} as Record<string, string>,
   });
   const [lockedPackages, setLockedPackages] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const [_searchTerm, _setSearchTerm] = useState("");
   const [_filterDateFrom, _setFilterDateFrom] = useState("");
   const [_filterDateTo, _setFilterDateTo] = useState("");
@@ -232,104 +233,200 @@ function WarehouseTab({
 
   const handleLog = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!biltyNumber) return showNotification("Bilty number required", "error");
-    const bNo =
-      biltyPrefix === "0" ? biltyNumber : `${biltyPrefix}-${biltyNumber}`;
-    const queueBiltyList = existingQueueBiltyNos ?? [];
-    const pkgCount = Number(form.packages) || 1;
+    if (isSaving) return;
+    setIsSaving(true);
+    try {
+      if (!biltyNumber)
+        return showNotification("Bilty number required", "error");
+      const bNo =
+        biltyPrefix === "0" ? biltyNumber : `${biltyPrefix}-${biltyNumber}`;
+      const queueBiltyList = existingQueueBiltyNos ?? [];
+      const pkgCount = Number(form.packages) || 1;
 
-    // Block duplicate base bilty in Queue (covers different package counts)
-    const baseBilty = bNo.replace(/X\d+\(\d+\)$/i, "").toLowerCase();
-    const existsInQueue = (pendingParcels || []).some(
-      (p) =>
-        (!p.businessId || p.businessId === activeBusinessId) &&
-        (p.biltyNo || "").replace(/X\d+\(\d+\)$/i, "").toLowerCase() ===
-          baseBilty,
-    );
-    if (existsInQueue) {
-      return showNotification(`Bilty ${bNo} already exists in Queue!`, "error");
-    }
-
-    if (pkgCount > 1 && baleRows.length > 0) {
-      // Save received bales to Queue, pending bales to Transit
-      const receivedBales = baleRows.filter((r) => r.status === "received");
-      const pendingBales = baleRows.filter((r) => r.status === "pending");
-      // Check for duplicates in Queue, inwardHistory, and INWARD transactions
-      const inwardTxBiltySet = new Set(
-        (transactions || [])
-          .filter(
-            (t) =>
-              t.type === "INWARD" &&
-              (!t.businessId || t.businessId === activeBusinessId),
-          )
-          .map((t) => (t.biltyNo || "").toLowerCase()),
+      // Block duplicate base bilty in Queue (covers different package counts)
+      const baseBilty = bNo.replace(/X\d+\(\d+\)$/i, "").toLowerCase();
+      const existsInQueue = (pendingParcels || []).some(
+        (p) =>
+          (!p.businessId || p.businessId === activeBusinessId) &&
+          (p.biltyNo || "").replace(/X\d+\(\d+\)$/i, "").toLowerCase() ===
+            baseBilty,
       );
-      const inwardBiltySet = new Set([
-        ...(existingQueueBiltyNos ?? []).map((b) => b.toLowerCase()),
-        ...inwardTxBiltySet,
-      ]);
-      const dupLabels = receivedBales
-        .filter((r) => inwardBiltySet.has(r.biltyLabel.toLowerCase()))
-        .map((r) => r.biltyLabel);
-      if (dupLabels.length > 0) {
-        showNotification(
-          `Duplicate bales blocked: ${dupLabels.join(", ")}`,
+      if (existsInQueue) {
+        return showNotification(
+          `Bilty ${bNo} already exists in Queue!`,
           "error",
         );
       }
-      const safeReceivedBales = receivedBales.filter(
-        (r) => !inwardBiltySet.has(r.biltyLabel.toLowerCase()),
-      );
-      setPendingParcels((prev) => [
-        ...safeReceivedBales.map((r, i) => ({
-          id: Date.now() + i,
-          biltyNo: r.biltyLabel,
-          businessId: activeBusinessId,
-          transportName: form.transportName,
-          supplier: form.supplier,
-          itemCategory: r.itemCategory,
-          itemName: r.itemName,
-          packages: String(pkgCount),
-          dateReceived: form.dateReceived,
-          arrivalDate: form.arrivalDate,
-          customData: form.customData,
-        })),
-        ...prev,
-      ]);
-      if (setTransitGoods) {
-        const allBaleLabels = new Set(
-          baleRows.map((r) => r.biltyLabel.toLowerCase()),
+
+      if (pkgCount > 1 && baleRows.length > 0) {
+        // Save received bales to Queue, pending bales to Transit
+        const receivedBales = baleRows.filter((r) => r.status === "received");
+        const pendingBales = baleRows.filter((r) => r.status === "pending");
+        // Check for duplicates in Queue, inwardHistory, and INWARD transactions
+        const inwardTxBiltySet = new Set(
+          (transactions || [])
+            .filter(
+              (t) =>
+                t.type === "INWARD" &&
+                (!t.businessId || t.businessId === activeBusinessId),
+            )
+            .map((t) => (t.biltyNo || "").toLowerCase()),
         );
-        setTransitGoods((prev) => {
-          // Remove ALL transit entries that match the base bilty OR any postfix variant
-          const cleaned = prev.filter((g) => {
-            const gLower = (g.biltyNo || "").toLowerCase();
-            const gBase = gLower.replace(/x\d+\(\d+\)$/i, "");
-            if (gLower === bNo.toLowerCase()) return false;
-            if (gBase === bNo.toLowerCase()) return false;
-            if (allBaleLabels.has(gLower)) return false;
-            return true;
-          });
-          // Add back only the pending bales (not yet received)
-          const newPendingEntries = pendingBales.map((r, i) => ({
-            id: Date.now() + 1000 + i,
+        const inwardBiltySet = new Set([
+          ...(existingQueueBiltyNos ?? []).map((b) => b.toLowerCase()),
+          ...inwardTxBiltySet,
+        ]);
+        const dupLabels = receivedBales
+          .filter((r) => inwardBiltySet.has(r.biltyLabel.toLowerCase()))
+          .map((r) => r.biltyLabel);
+        if (dupLabels.length > 0) {
+          showNotification(
+            `Duplicate bales blocked: ${dupLabels.join(", ")}`,
+            "error",
+          );
+        }
+        const safeReceivedBales = receivedBales.filter(
+          (r) => !inwardBiltySet.has(r.biltyLabel.toLowerCase()),
+        );
+        setPendingParcels((prev) => [
+          ...safeReceivedBales.map((r, i) => ({
+            id: Date.now() + i,
             biltyNo: r.biltyLabel,
             businessId: activeBusinessId,
             transportName: form.transportName,
-            supplierName: form.supplier,
+            supplier: form.supplier,
             itemCategory: r.itemCategory,
             itemName: r.itemName,
             packages: String(pkgCount),
-            date: form.arrivalDate,
-            addedBy: "Queue",
+            dateReceived: form.dateReceived,
+            arrivalDate: form.arrivalDate,
             customData: form.customData,
-          }));
-          return [...newPendingEntries, ...cleaned];
+          })),
+          ...prev,
+        ]);
+        if (setTransitGoods) {
+          const allBaleLabels = new Set(
+            baleRows.map((r) => r.biltyLabel.toLowerCase()),
+          );
+          setTransitGoods((prev) => {
+            // Remove ALL transit entries that match the base bilty OR any postfix variant
+            const cleaned = prev.filter((g) => {
+              const gLower = (g.biltyNo || "").toLowerCase();
+              const gBase = gLower.replace(/x\d+\(\d+\)$/i, "");
+              if (gLower === bNo.toLowerCase()) return false;
+              if (gBase === bNo.toLowerCase()) return false;
+              if (allBaleLabels.has(gLower)) return false;
+              return true;
+            });
+            // Add back only the pending bales (not yet received)
+            const newPendingEntries = pendingBales.map((r, i) => ({
+              id: Date.now() + 1000 + i,
+              biltyNo: r.biltyLabel,
+              businessId: activeBusinessId,
+              transportName: form.transportName,
+              supplierName: form.supplier,
+              itemCategory: r.itemCategory,
+              itemName: r.itemName,
+              packages: String(pkgCount),
+              date: form.arrivalDate,
+              addedBy: "Queue",
+              customData: form.customData,
+            }));
+            return [...newPendingEntries, ...cleaned];
+          });
+        }
+        setBaleRows([]);
+        setBiltyNumber("");
+        setLockedPackages(null);
+        setForm({
+          transportName: "",
+          supplier: "",
+          itemCategory: "",
+          itemName: "",
+          packages: "",
+          dateReceived: new Date().toISOString().split("T")[0],
+          arrivalDate: new Date().toISOString().split("T")[0],
+          customData: {},
         });
+        showNotification(
+          `${safeReceivedBales.length} received, ${pendingBales.length} pending`,
+          "success",
+        );
+        return;
       }
-      setBaleRows([]);
+
+      if (queueBiltyList.some((b) => b.toLowerCase() === bNo.toLowerCase())) {
+        return showNotification(
+          `Bilty ${bNo} already exists in Queue!`,
+          "error",
+        );
+      }
+      // Strict cross-tab uniqueness check (single-package path)
+      {
+        const baseBilty = bNo.replace(/X\d+\(\d+\)$/i, "").toLowerCase();
+        const inTransitCheck = (transitGoods || []).some(
+          (g) =>
+            (!g.businessId || g.businessId === activeBusinessId) &&
+            (g.biltyNo?.toLowerCase() === bNo.toLowerCase() ||
+              (g.biltyNo || "").replace(/X\d+\(\d+\)$/i, "").toLowerCase() ===
+                baseBilty),
+        );
+        const inInwardCheck = (transactions || []).some(
+          (t) =>
+            t.type === "INWARD" &&
+            (!t.businessId || t.businessId === activeBusinessId) &&
+            (t.biltyNo || "").replace(/X\d+\(\d+\)$/i, "").toLowerCase() ===
+              baseBilty,
+        );
+        const inInwardSavedCheck = (_inwardSavedQueue || []).some(
+          (s) =>
+            (!s.businessId || s.businessId === activeBusinessId) &&
+            ((s.biltyNumber || "")
+              .replace(/X\d+\(\d+\)$/i, "")
+              .toLowerCase() === baseBilty ||
+              (s.baseNumber || "").toLowerCase() === baseBilty),
+        );
+        if (inTransitCheck)
+          return showNotification(
+            `Bilty ${bNo} already exists in Transit!`,
+            "error",
+          );
+        if (inInwardCheck)
+          return showNotification(
+            `Bilty ${bNo} has already been processed in Inward!`,
+            "error",
+          );
+        if (inInwardSavedCheck)
+          return showNotification(
+            `Bilty ${bNo} is already in Inward Saved!`,
+            "error",
+          );
+      }
+      setPendingParcels((prev) => [
+        {
+          id: Date.now(),
+          biltyNo: bNo,
+          businessId: activeBusinessId,
+          ...form,
+        },
+        ...prev,
+      ]);
+      // Remove matching bilty from transit (both exact and postfixed variants)
+      if (setTransitGoods) {
+        setTransitGoods((prev) =>
+          prev.filter((g) => {
+            const gBase = (g.biltyNo || "")
+              .replace(/X\d+\(\d+\)$/i, "")
+              .toLowerCase()
+              .trim();
+            return (
+              gBase !== bNo.toLowerCase() &&
+              g.biltyNo?.toLowerCase() !== bNo.toLowerCase()
+            );
+          }),
+        );
+      }
       setBiltyNumber("");
-      setLockedPackages(null);
       setForm({
         transportName: "",
         supplier: "",
@@ -340,92 +437,10 @@ function WarehouseTab({
         arrivalDate: new Date().toISOString().split("T")[0],
         customData: {},
       });
-      showNotification(
-        `${safeReceivedBales.length} received, ${pendingBales.length} pending`,
-        "success",
-      );
-      return;
+      showNotification("Logged to Queue", "success");
+    } finally {
+      setIsSaving(false);
     }
-
-    if (queueBiltyList.some((b) => b.toLowerCase() === bNo.toLowerCase())) {
-      return showNotification(`Bilty ${bNo} already exists in Queue!`, "error");
-    }
-    // Strict cross-tab uniqueness check (single-package path)
-    {
-      const baseBilty = bNo.replace(/X\d+\(\d+\)$/i, "").toLowerCase();
-      const inTransitCheck = (transitGoods || []).some(
-        (g) =>
-          (!g.businessId || g.businessId === activeBusinessId) &&
-          (g.biltyNo?.toLowerCase() === bNo.toLowerCase() ||
-            (g.biltyNo || "").replace(/X\d+\(\d+\)$/i, "").toLowerCase() ===
-              baseBilty),
-      );
-      const inInwardCheck = (transactions || []).some(
-        (t) =>
-          t.type === "INWARD" &&
-          (!t.businessId || t.businessId === activeBusinessId) &&
-          (t.biltyNo || "").replace(/X\d+\(\d+\)$/i, "").toLowerCase() ===
-            baseBilty,
-      );
-      const inInwardSavedCheck = (_inwardSavedQueue || []).some(
-        (s) =>
-          (!s.businessId || s.businessId === activeBusinessId) &&
-          ((s.biltyNumber || "").replace(/X\d+\(\d+\)$/i, "").toLowerCase() ===
-            baseBilty ||
-            (s.baseNumber || "").toLowerCase() === baseBilty),
-      );
-      if (inTransitCheck)
-        return showNotification(
-          `Bilty ${bNo} already exists in Transit!`,
-          "error",
-        );
-      if (inInwardCheck)
-        return showNotification(
-          `Bilty ${bNo} has already been processed in Inward!`,
-          "error",
-        );
-      if (inInwardSavedCheck)
-        return showNotification(
-          `Bilty ${bNo} is already in Inward Saved!`,
-          "error",
-        );
-    }
-    setPendingParcels((prev) => [
-      {
-        id: Date.now(),
-        biltyNo: bNo,
-        businessId: activeBusinessId,
-        ...form,
-      },
-      ...prev,
-    ]);
-    // Remove matching bilty from transit (both exact and postfixed variants)
-    if (setTransitGoods) {
-      setTransitGoods((prev) =>
-        prev.filter((g) => {
-          const gBase = (g.biltyNo || "")
-            .replace(/X\d+\(\d+\)$/i, "")
-            .toLowerCase()
-            .trim();
-          return (
-            gBase !== bNo.toLowerCase() &&
-            g.biltyNo?.toLowerCase() !== bNo.toLowerCase()
-          );
-        }),
-      );
-    }
-    setBiltyNumber("");
-    setForm({
-      transportName: "",
-      supplier: "",
-      itemCategory: "",
-      itemName: "",
-      packages: "",
-      dateReceived: new Date().toISOString().split("T")[0],
-      arrivalDate: new Date().toISOString().split("T")[0],
-      customData: {},
-    });
-    showNotification("Logged to Queue", "success");
   };
 
   let filtered = (pendingParcels || []).filter((p) => {
@@ -557,7 +572,8 @@ function WarehouseTab({
         </div>
         <button
           type="submit"
-          className="w-full bg-amber-600 text-white font-black py-4 rounded-2xl uppercase tracking-widest text-xs shadow-xl hover:bg-amber-700 transition-transform active:scale-95"
+          disabled={isSaving}
+          className="w-full bg-amber-600 text-white font-black py-4 rounded-2xl uppercase tracking-widest text-xs shadow-xl hover:bg-amber-700 transition-transform active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
         >
           {baleRows.length > 0
             ? `Save ${baleRows.length} Bales`
