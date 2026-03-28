@@ -24,7 +24,6 @@ function DashboardTab({
   thresholdExcludedItems = [],
   categoryUnits = {},
   itemUnitOverrides = {},
-  inwardSaved = [],
 }: {
   inventory: Record<string, InventoryItem>;
   minStockThreshold: number;
@@ -34,7 +33,6 @@ function DashboardTab({
   thresholdExcludedItems?: string[];
   categoryUnits?: Record<string, "pcs" | "dozen">;
   itemUnitOverrides?: Record<string, "pcs" | "dozen">;
-  inwardSaved?: InwardSavedEntry[];
 }) {
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -253,32 +251,13 @@ function DashboardTab({
                                 .sort((a, b) =>
                                   (a.date || "").localeCompare(b.date || ""),
                                 );
-                              const inwardSavedBilties = inwardSaved
-                                .filter(
-                                  (s) =>
-                                    (!s.businessId ||
-                                      s.businessId === activeBusinessId) &&
-                                    s.items?.some(
-                                      (si) =>
-                                        si.itemName?.toLowerCase() ===
-                                          item.itemName?.toLowerCase() &&
-                                        si.category === item.category,
-                                    ),
-                                )
-                                .map((s) => s.biltyNumber)
-                                .filter(Boolean);
-                              if (
-                                allInwardTxs.length === 0 &&
-                                inwardSavedBilties.length === 0
-                              )
-                                return null;
+                              if (allInwardTxs.length === 0) return null;
                               const uniqueBiltyNos = [
-                                ...new Set([
-                                  ...allInwardTxs
+                                ...new Set(
+                                  allInwardTxs
                                     .map((tx) => tx.biltyNo)
                                     .filter(Boolean),
-                                  ...inwardSavedBilties,
-                                ]),
+                                ),
                               ];
                               const firstTx = allInwardTxs[0];
                               return (

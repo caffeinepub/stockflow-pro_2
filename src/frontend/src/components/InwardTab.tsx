@@ -557,7 +557,7 @@ ${names}`,
       doFinalSave();
     }
     const bNo = isDirectEntry
-      ? directReference.trim() || `DIRECT-${Date.now().toString().slice(-4)}`
+      ? `DIRECT-${directReference || Date.now().toString().slice(-4)}`
       : biltyPrefix === "0"
         ? biltyNumber
         : `${biltyPrefix}-${biltyNumber}`;
@@ -622,50 +622,50 @@ ${names}`,
           prev.filter((p) => p.biltyNo?.toLowerCase() !== bNo.toLowerCase()),
         );
       }
-    }
-    // Save to inwardSaved for both direct and queue-based inward entries
-    if (setInwardSaved) {
-      setInwardSaved((prev) => [
-        {
-          id: Date.now(),
-          biltyNumber: bNo,
-          baseNumber: bNo.replace(/X\d+\(\d+\)$/i, ""),
-          packages: "1",
-          items: baleItems.map((i) => ({
-            category: i.category,
-            itemName: i.itemName,
-            qty:
-              (Number(i.shopQty) || 0) +
-              Object.values(i.godownQuants).reduce(
+      // Also save to inwardSaved
+      if (setInwardSaved) {
+        setInwardSaved((prev) => [
+          {
+            id: Date.now(),
+            biltyNumber: bNo,
+            baseNumber: bNo.replace(/X\d+\(\d+\)$/i, ""),
+            packages: "1",
+            items: baleItems.map((i) => ({
+              category: i.category,
+              itemName: i.itemName,
+              qty:
+                (Number(i.shopQty) || 0) +
+                Object.values(i.godownQuants).reduce(
+                  (a, b) => a + Number(b || 0),
+                  0,
+                ),
+              shopQty: Number(i.shopQty) || 0,
+              godownQty: Object.values(i.godownQuants).reduce(
                 (a, b) => a + Number(b || 0),
                 0,
               ),
-            shopQty: Number(i.shopQty) || 0,
-            godownQty: Object.values(i.godownQuants).reduce(
-              (a, b) => a + Number(b || 0),
-              0,
-            ),
-            godownBreakdown: Object.fromEntries(
-              Object.entries(i.godownQuants).map(([k, v]) => [
-                k,
-                Number(v) || 0,
-              ]),
-            ),
-            saleRate: Number(i.saleRate) || 0,
-            purchaseRate: Number(i.purchaseRate) || 0,
-            attributes: i.attributes || {},
-          })),
-          savedBy: currentUser.username,
-          savedAt: new Date().toISOString(),
-          transporter: (matchedDetails as TransitRecord)?.transportName || "",
-          supplier:
-            (matchedDetails as TransitRecord)?.supplierName ||
-            (matchedDetails as PendingParcel)?.supplier ||
-            "",
-          businessId: activeBusinessId,
-        },
-        ...prev,
-      ]);
+              godownBreakdown: Object.fromEntries(
+                Object.entries(i.godownQuants).map(([k, v]) => [
+                  k,
+                  Number(v) || 0,
+                ]),
+              ),
+              saleRate: Number(i.saleRate) || 0,
+              purchaseRate: Number(i.purchaseRate) || 0,
+              attributes: i.attributes || {},
+            })),
+            savedBy: currentUser.username,
+            savedAt: new Date().toISOString(),
+            transporter: (matchedDetails as TransitRecord)?.transportName || "",
+            supplier:
+              (matchedDetails as TransitRecord)?.supplierName ||
+              (matchedDetails as PendingParcel)?.supplier ||
+              "",
+            businessId: activeBusinessId,
+          },
+          ...prev,
+        ]);
+      }
     }
     setBaleItems([]);
     setBiltyNumber("");

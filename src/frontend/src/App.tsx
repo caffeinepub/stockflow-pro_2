@@ -271,13 +271,10 @@ function fromBackendInwardSaved(e: BackendInwardSavedEntry): InwardSavedEntry {
   };
 }
 
-function toBackendInventory(
-  item: InventoryItem,
-  fallbackBusinessId = "b1",
-): BackendInventoryItem {
+function toBackendInventory(item: InventoryItem): BackendInventoryItem {
   return {
     id: item.sku,
-    businessId: item.businessId || fallbackBusinessId,
+    businessId: item.businessId,
     category: item.category,
     itemName: item.itemName,
     subCategory: JSON.stringify(item.attributes || {}),
@@ -409,11 +406,7 @@ function toBackendTxRecord(t: Transaction): TxRecord {
 }
 
 export default function App() {
-  const {
-    actor,
-    isFetching: isActorFetching,
-    // isError: isActorError,
-  } = useActor();
+  const { actor } = useActor();
   const [isDataLoading, setIsDataLoading] = useState(false);
 
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -695,12 +688,14 @@ export default function App() {
             };
           }
         }
-        // Populate categoryMapRef for ID lookups (but setCategories comes from business-specific fetch below)
-        for (const c of backendCats) {
-          categoryMapRef.current[c.name] = {
-            id: c.id,
-            subCategories: c.subCategories,
-          };
+        if (backendCats.length > 0) {
+          setCategories(backendCats.map(fromBackendCategory));
+          for (const c of backendCats) {
+            categoryMapRef.current[c.name] = {
+              id: c.id,
+              subCategories: c.subCategories,
+            };
+          }
         }
         if (backendPrefixes.length > 0) {
           setBiltyPrefixes(backendPrefixes.map((p) => p.prefix));
@@ -728,7 +723,6 @@ export default function App() {
           backendDeliveries,
           backendTxHistory,
           backendTransfers,
-          backendCatsByBiz,
         ] = await Promise.all([
           (actor as any).getTransitEntries(resolvedBusinessId),
           (actor as any).getQueueEntries(resolvedBusinessId),
@@ -737,7 +731,6 @@ export default function App() {
           (actor as any).getDeliveries(resolvedBusinessId),
           (actor as any).getTxHistory(resolvedBusinessId),
           (actor as any).getTransfers(resolvedBusinessId),
-          (actor as any).getCategoriesByBusiness(resolvedBusinessId),
         ]);
         const transitGoodsData = (backendTransit as BackendTransitEntry[]).map(
           fromBackendTransit,
@@ -781,16 +774,6 @@ export default function App() {
         transactionsRef.current = transactionsData;
 
         setTransfers(backendTransfers as TransferEntry[]);
-
-        // Set categories from business-specific fetch (always, even if empty)
-        setCategories((backendCatsByBiz as any[]).map(fromBackendCategory));
-        categoryMapRef.current = {};
-        for (const c of backendCatsByBiz as any[]) {
-          categoryMapRef.current[c.name] = {
-            id: c.id,
-            subCategories: c.subCategories,
-          };
-        }
 
         // Load app settings (fieldLabels, requiredFields, etc.) from Motoko
         try {
@@ -903,121 +886,6 @@ export default function App() {
       backendSave(actor.updateBusiness(b.id, b.name), "updateBusiness");
   };
 
-  const handleBusinessSwitch = async (newBizId: string) => {
-    if (!actor) return;
-    setIsDataLoading(true);
-    setActiveBusinessId(newBizId);
-    try {
-      const [
-        backendCats,
-        backendGodowns,
-        backendTransit,
-        backendQueue,
-        backendInwardSaved,
-        backendInventory,
-        backendDeliveries,
-        backendTxHistory,
-        backendTransfers,
-      ] = await Promise.all([
-        (actor as any).getCategoriesByBusiness(newBizId),
-        actor.getGodowns(),
-        (actor as any).getTransitEntries(newBizId),
-        (actor as any).getQueueEntries(newBizId),
-        (actor as any).getInwardSaved(newBizId),
-        (actor as any).getInventory(newBizId),
-        (actor as any).getDeliveries(newBizId),
-        (actor as any).getTxHistory(newBizId),
-        (actor as any).getTransfers(newBizId),
-      ]);
-
-      const cats = (backendCats as any[]).map(fromBackendCategory);
-      setCategories(cats);
-      categoryMapRef.current = {};
-      for (const c of backendCats as any[]) {
-        categoryMapRef.current[c.name] = {
-          id: c.id,
-          subCategories: c.subCategories,
-        };
-      }
-
-      const filteredGodowns = (backendGodowns as BackendGodown[]).filter(
-        (g) => g.businessId === newBizId,
-      );
-      setGodowns(filteredGodowns.map((g) => g.name));
-      godownMapRef.current = {};
-      for (const g of filteredGodowns) {
-        godownMapRef.current[g.name] = { id: g.id, businessId: g.businessId };
-      }
-
-      const transitData = (backendTransit as BackendTransitEntry[]).map(
-        fromBackendTransit,
-      );
-      setTransitGoods(transitData);
-      transitGoodsRef.current = transitData;
-
-      const queueData = (backendQueue as BackendQueueEntry[])
-        .filter((e) => !e.delivered)
-        .map(fromBackendQueue);
-      setPendingParcels(queueData);
-      pendingParcelsRef.current = queueData;
-
-      const inwardSavedData = (
-        backendInwardSaved as BackendInwardSavedEntry[]
-      ).map(fromBackendInwardSaved);
-      setInwardSaved(inwardSavedData);
-      inwardSavedRef.current = inwardSavedData;
-
-      const invMap: Record<string, InventoryItem> = {};
-      for (const e of backendInventory as BackendInventoryItem[]) {
-        const [k, v] = fromBackendInventory(e);
-        invMap[k] = v;
-      }
-      setInventory(invMap);
-      inventoryRef.current = invMap;
-
-      const deliveries = (backendDeliveries as DeliveryEntry[]).map(
-        fromBackendDelivery,
-      );
-      setDeliveryRecords(deliveries);
-      setDeliveredBilties(
-        deliveries
-          .filter((d) => d.type === "QUEUE" && d.biltyNo)
-          .map((d) => d.biltyNo as string),
-      );
-
-      const txData = (backendTxHistory as TxRecord[]).map(fromBackendTxRecord);
-      setTransactions(txData);
-      transactionsRef.current = txData;
-
-      setTransfers(backendTransfers as TransferEntry[]);
-    } catch (e) {
-      showNotification(`Failed to switch business: ${String(e)}`, "error");
-    } finally {
-      setIsDataLoading(false);
-    }
-  };
-
-  const shareCategoryToBusiness = async (
-    category: Category,
-    targetBusinessId: string,
-  ) => {
-    if (!actor) return;
-    const catId = `${category.name.toLowerCase().replace(/\s+/g, "-")}-${targetBusinessId}`;
-    await (actor as any).addCategory(catId, category.name, targetBusinessId);
-    for (const f of category.fields) {
-      const sc = {
-        id: f.name.toLowerCase().replace(/\s+/g, "-"),
-        name: f.name,
-        fieldType: f.type,
-        options: f.options || [],
-      };
-      await actor.addSubCategory(catId, sc);
-    }
-    showNotification(
-      `Category "${category.name}" shared to ${businesses.find((b) => b.id === targetBusinessId)?.name || targetBusinessId}`,
-    );
-  };
-
   const setGodownsWithBackend: React.Dispatch<
     React.SetStateAction<string[]>
   > = (updater) => {
@@ -1063,10 +931,7 @@ export default function App() {
     });
     for (const c of added) {
       const id = c.name.toLowerCase().replace(/\s+/g, "-");
-      backendSave(
-        (actor as any).addCategory(id, c.name, activeBusinessId),
-        "addCategory",
-      );
+      backendSave(actor.addCategory(id, c.name), "addCategory");
       for (const f of c.fields) {
         const sc: BackendSubCategory = {
           id: f.name.toLowerCase().replace(/\s+/g, "-"),
@@ -1403,18 +1268,14 @@ export default function App() {
     );
     for (const k of added)
       backendSave(
-        (actor as any).addInventoryItem(
-          toBackendInventory(next[k], activeBusinessId),
-        ),
+        (actor as any).addInventoryItem(toBackendInventory(next[k])),
         "addInventoryItem",
       );
     for (const k of deleted)
       backendSave((actor as any).deleteInventoryItem(k), "deleteInventoryItem");
     for (const k of updated)
       backendSave(
-        (actor as any).updateInventoryItem(
-          toBackendInventory(next[k], activeBusinessId),
-        ),
+        (actor as any).updateInventoryItem(toBackendInventory(next[k])),
         "updateInventoryItem",
       );
   };
@@ -1439,15 +1300,12 @@ export default function App() {
         businessId: activeBusinessId,
       };
       const nextGodowns = { ...current.godowns };
-      if (Number(godownDelta) !== 0) {
-        nextGodowns[targetGodown] =
-          (Number(nextGodowns[targetGodown]) || 0) + Number(godownDelta);
-      }
+      nextGodowns[targetGodown] =
+        (Number(nextGodowns[targetGodown]) || 0) + Number(godownDelta);
       return {
         ...prev,
         [sku]: {
           ...current,
-          businessId: current.businessId || activeBusinessId,
           shop: (Number(current.shop) || 0) + Number(shopDelta),
           godowns: nextGodowns,
           saleRate: details.saleRate ?? current.saleRate,
@@ -1633,7 +1491,7 @@ export default function App() {
         if (data.categories) {
           for (const cat of data.categories as Category[]) {
             const catId = cat.name.toLowerCase().replace(/\s+/g, "-");
-            await (actor as any).addCategory(catId, cat.name, activeBusinessId);
+            await (actor as any).addCategory(catId, cat.name);
             for (const f of cat.fields) {
               await (actor as any).addSubCategory(catId, {
                 id: f.name.toLowerCase().replace(/\s+/g, "-"),
@@ -1829,27 +1687,17 @@ export default function App() {
     currentUser,
   ]);
 
-  // Show spinner only while actor is actively connecting or data is loading
-  // Don't block on actor error — let the login screen show so user isn't stuck on blank page
-  if (isActorFetching && !actor && !currentUser)
+  if (
+    (!currentUser && !actor) ||
+    (currentUser && !actor) ||
+    (currentUser && isDataLoading)
+  )
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
           <p className="text-gray-500 font-bold text-sm uppercase tracking-widest">
-            Connecting...
-          </p>
-        </div>
-      </div>
-    );
-
-  if (currentUser && isDataLoading)
-    return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-          <p className="text-gray-500 font-bold text-sm uppercase tracking-widest">
-            Loading data...
+            {isDataLoading ? "Loading data..." : "Connecting..."}
           </p>
         </div>
       </div>
@@ -1909,7 +1757,7 @@ export default function App() {
           }).length > 1 && (
             <select
               value={activeBusinessId}
-              onChange={(e) => handleBusinessSwitch(e.target.value)}
+              onChange={(e) => setActiveBusinessId(e.target.value)}
               className="border rounded-lg p-1.5 text-[10px] font-bold bg-white outline-none focus:ring-2 focus:ring-blue-500 max-w-[110px]"
             >
               {businesses
@@ -1962,7 +1810,7 @@ export default function App() {
           </p>
           <select
             value={activeBusinessId}
-            onChange={(e) => handleBusinessSwitch(e.target.value)}
+            onChange={(e) => setActiveBusinessId(e.target.value)}
             className="w-full border rounded-xl p-2 text-xs font-bold bg-white outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
           >
             {businesses
@@ -2142,7 +1990,6 @@ export default function App() {
             thresholdExcludedItems={thresholdExcludedItems}
             categoryUnits={categoryUnits}
             itemUnitOverrides={itemUnitOverrides}
-            inwardSaved={inwardSaved}
           />
         )}
         {activeTab === "transit" && (
@@ -2395,7 +2242,6 @@ export default function App() {
             setCategoryUnits={setCategoryUnits}
             itemUnitOverrides={itemUnitOverrides}
             setItemUnitOverrides={setItemUnitOverrides}
-            shareCategoryToBusiness={shareCategoryToBusiness}
           />
         )}
 
