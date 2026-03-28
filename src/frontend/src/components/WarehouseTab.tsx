@@ -301,6 +301,7 @@ function WarehouseTab({
             dateReceived: form.dateReceived,
             arrivalDate: form.arrivalDate,
             customData: form.customData,
+            recordedAt: new Date().toISOString(),
           })),
           ...prev,
         ]);
@@ -408,6 +409,7 @@ function WarehouseTab({
           biltyNo: bNo,
           businessId: activeBusinessId,
           ...form,
+          recordedAt: new Date().toISOString(),
         },
         ...prev,
       ]);
@@ -731,6 +733,21 @@ function WarehouseTab({
                         Arrived:{" "}
                         <span className="text-gray-700">
                           {p.arrivalDate || p.dateReceived}
+                        </span>
+                      </p>
+                    )}
+                    {p.recordedAt && (
+                      <p>
+                        Logged:{" "}
+                        <span className="text-blue-600 font-black">
+                          {new Date(p.recordedAt).toLocaleString("en-IN", {
+                            day: "2-digit",
+                            month: "short",
+                            year: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            hour12: true,
+                          })}
                         </span>
                       </p>
                     )}

@@ -78,6 +78,7 @@ function DeliveryTab({
   const [filterDateFrom, setFilterDateFrom] = useState("");
   const [filterDateTo, setFilterDateTo] = useState("");
   const [filterGodown, setFilterGodown] = useState("all");
+  const [isSaving, setIsSaving] = useState(false);
 
   const queueEntries = pendingParcels.filter(
     (p) => !p.businessId || p.businessId === activeBusinessId,
@@ -105,140 +106,156 @@ function DeliveryTab({
   };
 
   const handleSaveDelivery = async () => {
-    const deliveryReq = requiredFields?.delivery || {};
-    if (!customerName.trim())
-      return showNotification("Customer Name is required", "error");
-    if (deliveryReq.customerPhone && !customerPhone.trim())
-      return showNotification("Customer Phone is required", "error");
-    if (!selectedGodown) return showNotification("Select a godown", "error");
-    const validItems = deliveryItems.filter(
-      (i) => i.itemName && Number(i.qty) > 0,
-    );
-    if (validItems.length === 0)
-      return showNotification("Add at least one item with qty", "error");
-
-    // Zero-stock check
-    for (const item of validItems) {
-      const existingItem = Object.values(inventory).find(
-        (inv) =>
-          (!inv.businessId || inv.businessId === activeBusinessId) &&
-          inv.itemName.toLowerCase() === item.itemName.toLowerCase() &&
-          (!item.category || inv.category === item.category),
+    if (isSaving) return;
+    setIsSaving(true);
+    try {
+      const deliveryReq = requiredFields?.delivery || {};
+      if (!customerName.trim())
+        return showNotification("Customer Name is required", "error");
+      if (deliveryReq.customerPhone && !customerPhone.trim())
+        return showNotification("Customer Phone is required", "error");
+      if (!selectedGodown) return showNotification("Select a godown", "error");
+      const validItems = deliveryItems.filter(
+        (i) => i.itemName && Number(i.qty) > 0,
       );
-      const godownQty = existingItem?.godowns[selectedGodown] || 0;
-      if (godownQty <= 0) {
-        return showNotification(
-          `No stock available for "${item.itemName}" in ${selectedGodown}`,
-          "error",
+      if (validItems.length === 0)
+        return showNotification("Add at least one item with qty", "error");
+
+      // Zero-stock check
+      for (const item of validItems) {
+        const existingItem = Object.values(inventory).find(
+          (inv) =>
+            (!inv.businessId || inv.businessId === activeBusinessId) &&
+            inv.itemName.toLowerCase() === item.itemName.toLowerCase() &&
+            (!item.category || inv.category === item.category),
         );
+        const godownQty = existingItem?.godowns[selectedGodown] || 0;
+        if (godownQty <= 0) {
+          return showNotification(
+            `No stock available for "${item.itemName}" in ${selectedGodown}`,
+            "error",
+          );
+        }
+        if (godownQty < Number(item.qty)) {
+          return showNotification(
+            `Only ${godownQty} units of "${item.itemName}" available in ${selectedGodown}`,
+            "error",
+          );
+        }
       }
-      if (godownQty < Number(item.qty)) {
-        return showNotification(
-          `Only ${godownQty} units of "${item.itemName}" available in ${selectedGodown}`,
-          "error",
-        );
-      }
-    }
 
-    const now = new Date().toISOString();
-    const record: DeliveryRecord = {
-      id: Date.now().toString(),
-      type: sourceType,
-      sourceGodown: selectedGodown,
-      biltyNo: selectedQueue?.biltyNo,
-      items: validItems.map((i) => ({
-        category: i.category,
-        itemName: i.itemName,
-        qty: Number(i.qty),
-        subCategory: i.subCategory || undefined,
-      })),
-      customerName: customerName.trim(),
-      customerPhone: customerPhone.trim(),
-      deliveredBy: currentUser.username,
-      deliveredAt: now,
-      businessId: activeBusinessId,
-    };
-
-    if (sourceType === "QUEUE" && selectedQueue) {
-      // Remove from queue
-      setPendingParcels((prev) =>
-        prev.filter((p) => p.id !== selectedQueue.id),
-      );
-      // Add to godown then deduct (net effect: just log)
-    }
-
-    // Log transaction
-    setTransactions((prev) => [
-      {
-        id: Date.now(),
-        type: "DELIVERY",
+      const now = new Date().toISOString();
+      const record: DeliveryRecord = {
+        id: Date.now().toString(),
+        type: sourceType,
+        sourceGodown: selectedGodown,
         biltyNo: selectedQueue?.biltyNo,
-        businessId: activeBusinessId,
-        date: now.split("T")[0],
-        user: currentUser.username,
-        fromLocation: selectedGodown,
-        toLocation: customerName.trim(),
-        notes: `Delivered to ${customerName}`,
-        itemsCount: validItems.reduce((s, i) => s + Number(i.qty), 0),
-        baleItemsList: validItems.map((item) => ({
-          itemName: item.itemName,
-          category: item.category,
-          attributes: {},
-          qty: Number(item.qty),
-          shopQty: 0,
-          godownQuants: { [selectedGodown]: Number(item.qty) },
-          saleRate: 0,
-          purchaseRate: 0,
+        items: validItems.map((i) => ({
+          category: i.category,
+          itemName: i.itemName,
+          qty: Number(i.qty),
+          subCategory: i.subCategory || undefined,
         })),
-      },
-      ...prev,
-    ]);
+        customerName: customerName.trim(),
+        customerPhone: customerPhone.trim(),
+        deliveredBy: currentUser.username,
+        deliveredAt: now,
+        businessId: activeBusinessId,
+      };
 
-    if (actor) {
-      try {
-        const result = await actor.addDelivery({
-          id: record.id,
+      if (sourceType === "QUEUE" && selectedQueue) {
+        // Remove from queue
+        setPendingParcels((prev) =>
+          prev.filter((p) => p.id !== selectedQueue.id),
+        );
+        // Add to godown then deduct (net effect: just log)
+      }
+
+      // Log transaction
+      setTransactions((prev) => [
+        {
+          id: Date.now(),
+          type: "DELIVERY",
+          biltyNo: selectedQueue?.biltyNo,
           businessId: activeBusinessId,
-          createdAt: BigInt(Date.now()),
-          deliveredBy: currentUser.username,
-          customerName: record.customerName,
-          customerPhone: customerPhone || "",
-          deliveryType: sourceType === "QUEUE" ? "QUEUE" : "From Godown",
-          biltyNumber: record.biltyNo || "",
-          items: validItems.map((item: any) => ({
+          date: now.split("T")[0],
+          user: currentUser.username,
+          fromLocation: selectedGodown,
+          toLocation: customerName.trim(),
+          notes: `Delivered to ${customerName}`,
+          itemsCount: validItems.reduce((s, i) => s + Number(i.qty), 0),
+          baleItemsList: validItems.map((item) => ({
             itemName: item.itemName,
-            category: item.category || "",
-            subCategory: item.subCategory || "",
-            qty: BigInt(Number(item.qty)),
-            godownId: selectedGodown,
+            category: item.category,
+            attributes: {},
+            qty: Number(item.qty),
+            shopQty: 0,
+            godownQuants: { [selectedGodown]: Number(item.qty) },
+            saleRate: 0,
+            purchaseRate: 0,
           })),
-        });
-        if (result !== "ok") {
-          showNotification(`Delivery failed: ${result}`, "error");
+        },
+        ...prev,
+      ]);
+
+      if (actor) {
+        try {
+          const result = await actor.addDelivery({
+            id: record.id,
+            businessId: activeBusinessId,
+            createdAt: BigInt(Date.now()),
+            deliveredBy: currentUser.username,
+            customerName: record.customerName,
+            customerPhone: customerPhone || "",
+            deliveryType: sourceType === "QUEUE" ? "QUEUE" : "From Godown",
+            biltyNumber: record.biltyNo || "",
+            items: validItems.map((item: any) => ({
+              itemName: item.itemName,
+              category: item.category || "",
+              subCategory: item.subCategory || "",
+              qty: BigInt(Number(item.qty)),
+              godownId: selectedGodown,
+            })),
+          });
+          if (result !== "ok") {
+            showNotification(`Delivery failed: ${result}`, "error");
+            return;
+          }
+          if (onInventoryRefresh) await onInventoryRefresh();
+        } catch (e) {
+          console.error(e);
+          showNotification("Delivery failed: backend error", "error");
           return;
         }
-        if (onInventoryRefresh) await onInventoryRefresh();
-      } catch (e) {
-        console.error(e);
-        showNotification("Delivery failed: backend error", "error");
+      } else {
+        showNotification("Not connected to backend", "error");
         return;
       }
-    } else {
-      showNotification("Not connected to backend", "error");
-      return;
+      setDeliveryRecords((prev) => [record, ...prev]);
+      // Mark queue bilty as delivered so Inward tab can check
+      if (
+        sourceType === "QUEUE" &&
+        selectedQueue?.biltyNo &&
+        onDeliveredBilty
+      ) {
+        onDeliveredBilty(selectedQueue.biltyNo.toLowerCase());
+      }
+      setCustomerName("");
+      setCustomerPhone("");
+      setDeliveryItems([
+        {
+          id: Date.now(),
+          category: "",
+          itemName: "",
+          subCategory: "",
+          qty: "",
+        },
+      ]);
+      setSelectedBiltyId(null);
+      showNotification("Delivery recorded successfully!", "success");
+    } finally {
+      setIsSaving(false);
     }
-    setDeliveryRecords((prev) => [record, ...prev]);
-    // Mark queue bilty as delivered so Inward tab can check
-    if (sourceType === "QUEUE" && selectedQueue?.biltyNo && onDeliveredBilty) {
-      onDeliveredBilty(selectedQueue.biltyNo.toLowerCase());
-    }
-    setCustomerName("");
-    setCustomerPhone("");
-    setDeliveryItems([
-      { id: Date.now(), category: "", itemName: "", subCategory: "", qty: "" },
-    ]);
-    setSelectedBiltyId(null);
-    showNotification("Delivery recorded successfully!", "success");
   };
 
   const filteredRecords = deliveryRecords
@@ -644,9 +661,10 @@ function DeliveryTab({
               type="button"
               data-ocid="delivery.submit_button"
               onClick={handleSaveDelivery}
-              className="w-full bg-blue-600 text-white font-black py-4 rounded-2xl uppercase tracking-widest text-xs shadow-lg hover:bg-blue-700 transition-colors"
+              disabled={isSaving}
+              className="w-full bg-blue-600 text-white font-black py-4 rounded-2xl uppercase tracking-widest text-xs shadow-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Save Delivery
+              {isSaving ? "Saving..." : "Save Delivery"}
             </button>
           </div>
         </div>

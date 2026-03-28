@@ -69,6 +69,7 @@ export interface PendingParcel {
   packages: string;
   dateReceived: string;
   arrivalDate?: string;
+  recordedAt?: string; // full ISO timestamp when entry was logged
   businessId: string;
   customData: Record<string, string>;
   itemName?: string;

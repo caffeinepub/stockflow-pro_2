@@ -2136,6 +2136,8 @@ export default function App() {
             categories={categories}
             godowns={godowns}
             setTransactions={setTransactionsWithBackend as any}
+            setInwardSaved={setInwardSavedWithBackend as any}
+            actor={actor}
             activeBusinessId={activeBusinessId}
             currentUser={currentUser}
             showNotification={showNotification}

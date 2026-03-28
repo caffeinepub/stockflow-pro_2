@@ -328,7 +328,16 @@ function HistoryTab({
                       className={`text-right p-3 rounded-2xl border ${isTransfer ? "bg-purple-50 border-purple-100" : "bg-gray-50 border-gray-100"}`}
                     >
                       <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                        {t.date?.split("T")[0] || t.date}
+                        {t.date?.includes("T")
+                          ? new Date(t.date).toLocaleString("en-IN", {
+                              day: "2-digit",
+                              month: "short",
+                              year: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                              hour12: true,
+                            })
+                          : t.date}
                       </p>
                       {!isTransfer && (t.itemsCount ?? 0) > 0 && (
                         <p className="text-xs font-black text-blue-600 mt-1">

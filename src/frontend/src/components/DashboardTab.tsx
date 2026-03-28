@@ -489,7 +489,16 @@ function ItemHistoryPanel({
               }
               msg += "\n📅 *Transaction Timeline*\n";
               for (const tx of itemTxs) {
-                const d = tx.date?.split("T")[0] || tx.date;
+                const d = tx.date?.includes("T")
+                  ? new Date(tx.date).toLocaleString("en-IN", {
+                      day: "2-digit",
+                      month: "short",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      hour12: true,
+                    })
+                  : tx.date;
                 if (
                   tx.type === "INWARD" ||
                   tx.type === "OPENING_STOCK" ||
@@ -697,7 +706,20 @@ function ItemHistoryPanel({
                                           <b className="text-gray-600">
                                             {tx.user || "?"}
                                           </b>{" "}
-                                          · {tx.date?.split("T")[0] || tx.date}
+                                          ·{" "}
+                                          {tx.date?.includes("T")
+                                            ? new Date(tx.date).toLocaleString(
+                                                "en-IN",
+                                                {
+                                                  day: "2-digit",
+                                                  month: "short",
+                                                  year: "numeric",
+                                                  hour: "2-digit",
+                                                  minute: "2-digit",
+                                                  hour12: true,
+                                                },
+                                              )
+                                            : tx.date}
                                         </p>
                                       </div>
                                       {tx.biltyNo && (
@@ -802,7 +824,20 @@ function ItemHistoryPanel({
                                       <b className="text-gray-600">
                                         {tx.transferredBy || tx.user || "?"}
                                       </b>{" "}
-                                      · {tx.date?.split("T")[0] || tx.date}
+                                      ·{" "}
+                                      {tx.date?.includes("T")
+                                        ? new Date(tx.date).toLocaleString(
+                                            "en-IN",
+                                            {
+                                              day: "2-digit",
+                                              month: "short",
+                                              year: "numeric",
+                                              hour: "2-digit",
+                                              minute: "2-digit",
+                                              hour12: true,
+                                            },
+                                          )
+                                        : tx.date}
                                     </p>
                                   </div>
                                 </div>
@@ -834,7 +869,20 @@ function ItemHistoryPanel({
                                       <b className="text-gray-600">
                                         {tx.user || "?"}
                                       </b>{" "}
-                                      · {tx.date?.split("T")[0] || tx.date}
+                                      ·{" "}
+                                      {tx.date?.includes("T")
+                                        ? new Date(tx.date).toLocaleString(
+                                            "en-IN",
+                                            {
+                                              day: "2-digit",
+                                              month: "short",
+                                              year: "numeric",
+                                              hour: "2-digit",
+                                              minute: "2-digit",
+                                              hour12: true,
+                                            },
+                                          )
+                                        : tx.date}
                                     </p>
                                   </div>
                                 </div>
@@ -867,7 +915,17 @@ function ItemHistoryPanel({
                               <b className="text-gray-600">
                                 {tx.transferredBy || tx.user || "?"}
                               </b>{" "}
-                              · {tx.date?.split("T")[0] || tx.date}
+                              ·{" "}
+                              {tx.date?.includes("T")
+                                ? new Date(tx.date).toLocaleString("en-IN", {
+                                    day: "2-digit",
+                                    month: "short",
+                                    year: "numeric",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                    hour12: true,
+                                  })
+                                : tx.date}
                             </p>
                           </div>
                         </div>

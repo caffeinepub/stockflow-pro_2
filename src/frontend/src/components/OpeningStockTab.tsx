@@ -2,7 +2,13 @@ import { Download, PackagePlus, Upload } from "lucide-react";
 import type React from "react";
 import { useState } from "react";
 import { formatItemName } from "../constants";
-import type { AppUser, Category, InventoryItem, Transaction } from "../types";
+import type {
+  AppUser,
+  Category,
+  InventoryItem,
+  InwardSavedEntry,
+  Transaction,
+} from "../types";
 import { ItemNameComboOpening } from "./ItemNameCombo";
 
 function StockOverwriteTable({
@@ -211,6 +217,8 @@ function OpeningStockTab({
   categories,
   godowns,
   setTransactions,
+  setInwardSaved,
+  actor,
   activeBusinessId,
   currentUser,
   showNotification,
@@ -222,6 +230,8 @@ function OpeningStockTab({
   categories: Category[];
   godowns: string[];
   setTransactions: React.Dispatch<React.SetStateAction<Transaction[]>>;
+  setInwardSaved: React.Dispatch<React.SetStateAction<InwardSavedEntry[]>>;
+  actor?: any;
   activeBusinessId: string;
   currentUser: AppUser;
   showNotification: (m: string, t?: string) => void;
@@ -295,7 +305,7 @@ function OpeningStockTab({
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!itemName.trim() || !selectedCategory) {
       showNotification("Item name and category are required", "error");
@@ -337,10 +347,83 @@ function OpeningStockTab({
           user: currentUser.username,
           businessId: activeBusinessId,
         } as Transaction,
+        {
+          id: Date.now() + 1,
+          type: "INWARD",
+          sku: existing.sku,
+          itemName: existing.itemName,
+          category: existing.category,
+          biltyNo: refNote || "OPENING",
+          itemsCount:
+            shopQty + godowns.reduce((sum, g) => sum + (godownQtys[g] || 0), 0),
+          notes: `Opening stock entry. Ref: ${refNote || "N/A"}. Date: ${date}. shop+${shopQty}, ${godowns.map((g) => `${g}+${godownQtys[g] || 0}`).join(", ")}`,
+          date: new Date().toISOString(),
+          user: currentUser.username,
+          businessId: activeBusinessId,
+        } as Transaction,
       ]);
       showNotification(
         `Opening stock added to existing item: ${existing.itemName}`,
       );
+      // Save to inwardSaved for analytics persistence
+      const totalQtyExisting =
+        shopQty + godowns.reduce((sum, g) => sum + (godownQtys[g] || 0), 0);
+      const inwardEntryExisting: InwardSavedEntry = {
+        id: Date.now() + 2,
+        biltyNumber: refNote || "OPENING",
+        baseNumber: refNote || "OPENING",
+        packages: "1",
+        items: [
+          {
+            category: existing.category,
+            itemName: existing.itemName,
+            qty: totalQtyExisting,
+            godownQty: godowns.reduce(
+              (sum, g) => sum + (godownQtys[g] || 0),
+              0,
+            ),
+            godownBreakdown: { ...godownQtys },
+            shopQty,
+            saleRate,
+            purchaseRate,
+            attributes: existing.attributes || {},
+          },
+        ],
+        savedBy: currentUser.username,
+        savedAt: new Date().toISOString(),
+        transporter: "",
+        supplier: "",
+        businessId: activeBusinessId,
+      };
+      setInwardSaved((prev) => [...prev, inwardEntryExisting]);
+      if (actor) {
+        try {
+          await (actor as any).saveInward({
+            id: String(inwardEntryExisting.id),
+            businessId: activeBusinessId,
+            biltyNumber: inwardEntryExisting.biltyNumber,
+            baseNumber: inwardEntryExisting.baseNumber,
+            packages: inwardEntryExisting.packages,
+            savedBy: inwardEntryExisting.savedBy,
+            savedAt: inwardEntryExisting.savedAt,
+            transporter: "",
+            supplier: "",
+            items: inwardEntryExisting.items.map((item) => ({
+              category: item.category,
+              itemName: item.itemName,
+              qty: BigInt(item.qty),
+              godownQty: BigInt(item.godownQty),
+              shopQty: BigInt(item.shopQty),
+              saleRate: item.saleRate,
+              purchaseRate: item.purchaseRate,
+              attributes: JSON.stringify(item.attributes || {}),
+              godownBreakdown: JSON.stringify(item.godownBreakdown || {}),
+            })),
+          });
+        } catch (e) {
+          console.error("saveInward for opening stock failed", e);
+        }
+      }
     } else {
       const newItem: InventoryItem = {
         sku,
@@ -367,8 +450,81 @@ function OpeningStockTab({
           user: currentUser.username,
           businessId: activeBusinessId,
         } as Transaction,
+        {
+          id: Date.now() + 1,
+          type: "INWARD",
+          sku,
+          itemName: itemName.trim(),
+          category: selectedCategory,
+          biltyNo: refNote || "OPENING",
+          itemsCount:
+            shopQty + godowns.reduce((sum, g) => sum + (godownQtys[g] || 0), 0),
+          notes: `Opening stock entry. Ref: ${refNote || "N/A"}. Date: ${date}. shop=${shopQty}, ${godowns.map((g) => `${g}=${godownQtys[g] || 0}`).join(", ")}`,
+          date: new Date().toISOString(),
+          user: currentUser.username,
+          businessId: activeBusinessId,
+        } as Transaction,
       ]);
       showNotification(`Opening stock entered: ${itemName.trim()}`);
+      // Save to inwardSaved for analytics persistence
+      const totalQtyNew =
+        shopQty + godowns.reduce((sum, g) => sum + (godownQtys[g] || 0), 0);
+      const inwardEntryNew: InwardSavedEntry = {
+        id: Date.now() + 2,
+        biltyNumber: refNote || "OPENING",
+        baseNumber: refNote || "OPENING",
+        packages: "1",
+        items: [
+          {
+            category: selectedCategory,
+            itemName: itemName.trim(),
+            qty: totalQtyNew,
+            godownQty: godowns.reduce(
+              (sum, g) => sum + (godownQtys[g] || 0),
+              0,
+            ),
+            godownBreakdown: { ...godownQtys },
+            shopQty,
+            saleRate,
+            purchaseRate,
+            attributes: { ...attributes },
+          },
+        ],
+        savedBy: currentUser.username,
+        savedAt: new Date().toISOString(),
+        transporter: "",
+        supplier: "",
+        businessId: activeBusinessId,
+      };
+      setInwardSaved((prev) => [...prev, inwardEntryNew]);
+      if (actor) {
+        try {
+          await (actor as any).saveInward({
+            id: String(inwardEntryNew.id),
+            businessId: activeBusinessId,
+            biltyNumber: inwardEntryNew.biltyNumber,
+            baseNumber: inwardEntryNew.baseNumber,
+            packages: inwardEntryNew.packages,
+            savedBy: inwardEntryNew.savedBy,
+            savedAt: inwardEntryNew.savedAt,
+            transporter: "",
+            supplier: "",
+            items: inwardEntryNew.items.map((item) => ({
+              category: item.category,
+              itemName: item.itemName,
+              qty: BigInt(item.qty),
+              godownQty: BigInt(item.godownQty),
+              shopQty: BigInt(item.shopQty),
+              saleRate: item.saleRate,
+              purchaseRate: item.purchaseRate,
+              attributes: JSON.stringify(item.attributes || {}),
+              godownBreakdown: JSON.stringify(item.godownBreakdown || {}),
+            })),
+          });
+        } catch (e) {
+          console.error("saveInward for opening stock failed", e);
+        }
+      }
     }
     resetForm();
   };
