@@ -232,7 +232,8 @@ function DashboardTab({
                                   (tx) =>
                                     (!tx.businessId ||
                                       tx.businessId === activeBusinessId) &&
-                                    tx.type === "INWARD" &&
+                                    (tx.type === "INWARD" ||
+                                      tx.type === "DIRECT_STOCK") &&
                                     (tx.sku === item.sku ||
                                       (tx.itemName?.toLowerCase() ===
                                         item.itemName?.toLowerCase() &&

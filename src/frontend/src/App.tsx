@@ -1325,6 +1325,7 @@ export default function App() {
     let freshUsers = users;
     let freshBusinesses = businesses;
     let freshBiltyPrefixes = biltyPrefixes;
+    let freshInwardSaved: InwardSavedEntry[] = inwardSaved;
 
     if (actor) {
       try {
@@ -1379,6 +1380,20 @@ export default function App() {
           ];
         }
         freshInventory = invMap;
+
+        // Fetch inwardSaved from backend
+        freshInwardSaved = [];
+        const inwardSavedResults = await Promise.all(
+          allBusinessIds.map((bId) => (actor as any).getInwardSaved(bId)),
+        );
+        for (const result of inwardSavedResults) {
+          freshInwardSaved = [
+            ...freshInwardSaved,
+            ...(result as BackendInwardSavedEntry[]).map(
+              fromBackendInwardSaved,
+            ),
+          ];
+        }
       } catch (_err) {
         showNotification(
           "Could not fetch latest backend data — using cached state for backup",
@@ -1408,6 +1423,7 @@ export default function App() {
       deliveryRecords,
       exportedAt: new Date().toISOString(),
       appVersion: "StockFlow Pro",
+      inwardSaved: freshInwardSaved,
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], {
       type: "application/json",
@@ -1445,6 +1461,8 @@ export default function App() {
         if (data.businesses) setBusinesses(data.businesses);
         if (data.activeBusinessId) setActiveBusinessId(data.activeBusinessId);
         if (data.deliveryRecords) setDeliveryRecords(data.deliveryRecords);
+        if (data.inwardSaved)
+          setInwardSaved(data.inwardSaved as InwardSavedEntry[]);
 
         if (!actor) {
           showNotification(
@@ -1550,6 +1568,19 @@ export default function App() {
           await Promise.all(
             (data.pendingParcels as PendingParcel[]).map((p) =>
               (actor as any).addQueueEntry(toBackendQueue(p)),
+            ),
+          );
+        }
+
+        // 7b. Restore inward saved records
+        if (
+          data.inwardSaved &&
+          (data.inwardSaved as InwardSavedEntry[]).length > 0
+        ) {
+          await Promise.all(
+            (data.inwardSaved as InwardSavedEntry[]).map(
+              (e: InwardSavedEntry) =>
+                (actor as any).saveInward(toBackendInwardSaved(e)),
             ),
           );
         }
