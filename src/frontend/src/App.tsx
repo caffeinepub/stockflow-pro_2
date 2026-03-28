@@ -406,7 +406,11 @@ function toBackendTxRecord(t: Transaction): TxRecord {
 }
 
 export default function App() {
-  const { actor } = useActor();
+  const {
+    actor,
+    isFetching: isActorFetching,
+    // isError: isActorError,
+  } = useActor();
   const [isDataLoading, setIsDataLoading] = useState(false);
 
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -1300,8 +1304,10 @@ export default function App() {
         businessId: activeBusinessId,
       };
       const nextGodowns = { ...current.godowns };
-      nextGodowns[targetGodown] =
-        (Number(nextGodowns[targetGodown]) || 0) + Number(godownDelta);
+      if (Number(godownDelta) !== 0) {
+        nextGodowns[targetGodown] =
+          (Number(nextGodowns[targetGodown]) || 0) + Number(godownDelta);
+      }
       return {
         ...prev,
         [sku]: {
@@ -1687,17 +1693,27 @@ export default function App() {
     currentUser,
   ]);
 
-  if (
-    (!currentUser && !actor) ||
-    (currentUser && !actor) ||
-    (currentUser && isDataLoading)
-  )
+  // Show spinner only while actor is actively connecting or data is loading
+  // Don't block on actor error — let the login screen show so user isn't stuck on blank page
+  if (isActorFetching && !actor && !currentUser)
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
           <p className="text-gray-500 font-bold text-sm uppercase tracking-widest">
-            {isDataLoading ? "Loading data..." : "Connecting..."}
+            Connecting...
+          </p>
+        </div>
+      </div>
+    );
+
+  if (currentUser && isDataLoading)
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+          <p className="text-gray-500 font-bold text-sm uppercase tracking-widest">
+            Loading data...
           </p>
         </div>
       </div>
@@ -1990,6 +2006,7 @@ export default function App() {
             thresholdExcludedItems={thresholdExcludedItems}
             categoryUnits={categoryUnits}
             itemUnitOverrides={itemUnitOverrides}
+            inwardSaved={inwardSaved}
           />
         )}
         {activeTab === "transit" && (
