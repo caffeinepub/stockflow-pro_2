@@ -283,7 +283,7 @@ export interface backendInterface {
     _initializeAccessControlWithSecret(userSecret: string): Promise<void>;
     addBiltyPrefix(id: string, prefix: string): Promise<void>;
     addBusiness(id: string, name: string): Promise<void>;
-    addCategory(id: string, name: string): Promise<void>;
+    addCategory(id: string, name: string, businessId: string): Promise<void>;
     addDelivery(entry: DeliveryEntry): Promise<string>;
     addGodown(id: string, name: string, businessId: string): Promise<void>;
     addInventoryItem(item: InventoryItem): Promise<void>;
@@ -314,6 +314,7 @@ export interface backendInterface {
     getBusinesses(): Promise<Array<Business>>;
     getCallerUserRole(): Promise<UserRole>;
     getCategories(): Promise<Array<Category>>;
+    getCategoriesByBusiness(businessId: string): Promise<Array<Category>>;
     getCurrentUser(): Promise<string>;
     getDeliveries(businessId: string): Promise<Array<DeliveryEntry>>;
     getGodowns(): Promise<Array<Godown>>;
@@ -387,17 +388,17 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async addCategory(arg0: string, arg1: string): Promise<void> {
+    async addCategory(arg0: string, arg1: string, arg2: string): Promise<void> {
         if (this.processError) {
             try {
-                const result = await this.actor.addCategory(arg0, arg1);
+                const result = await this.actor.addCategory(arg0, arg1, arg2);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.addCategory(arg0, arg1);
+            const result = await this.actor.addCategory(arg0, arg1, arg2);
             return result;
         }
     }
@@ -818,6 +819,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.getCategories();
+            return result;
+        }
+    }
+    async getCategoriesByBusiness(businessId: string): Promise<Array<Category>> {
+        if (this.processError) {
+            try {
+                const result = await (this.actor as any).getCategoriesByBusiness(businessId);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await (this.actor as any).getCategoriesByBusiness(businessId);
             return result;
         }
     }

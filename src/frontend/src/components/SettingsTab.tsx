@@ -237,6 +237,7 @@ function SettingsTab({
   setCategoryUnits,
   itemUnitOverrides = {},
   setItemUnitOverrides,
+  shareCategoryToBusiness,
 }: {
   users: AppUser[];
   setUsers: React.Dispatch<React.SetStateAction<AppUser[]>>;
@@ -321,6 +322,10 @@ function SettingsTab({
   setItemUnitOverrides?: React.Dispatch<
     React.SetStateAction<Record<string, "pcs" | "dozen">>
   >;
+  shareCategoryToBusiness?: (
+    category: Category,
+    targetBusinessId: string,
+  ) => void;
 }) {
   const [activeSub, setActiveSub] = useState(initialSubTab || "businesses");
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally sync when prop changes
@@ -1265,6 +1270,29 @@ function SettingsTab({
                         >
                           <Edit size={14} />
                         </button>
+                        {shareCategoryToBusiness && businesses.length > 1 && (
+                          <select
+                            className="text-xs border rounded-lg p-1 bg-white text-gray-600 shadow-sm cursor-pointer"
+                            defaultValue=""
+                            onChange={(e) => {
+                              if (e.target.value) {
+                                shareCategoryToBusiness(c, e.target.value);
+                                e.target.value = "";
+                              }
+                            }}
+                          >
+                            <option value="" disabled>
+                              Share →
+                            </option>
+                            {businesses
+                              .filter((b) => b.id !== activeBusinessId)
+                              .map((b) => (
+                                <option key={b.id} value={b.id}>
+                                  {b.name}
+                                </option>
+                              ))}
+                          </select>
+                        )}
                         <button
                           type="button"
                           onClick={() =>

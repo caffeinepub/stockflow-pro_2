@@ -177,6 +177,7 @@ actor {
   stable var businesses        : [Business]         = [];
   stable var godowns           : [Godown]           = [];
   stable var categories        : [Category]         = [];
+  stable var categoryBusinessIds : [(Text, Text)]    = [];
   stable var biltyPrefixes     : [BiltyPrefix]      = [];
   stable var transportTrackers : [TransportTracker] = [];
   stable var transitEntries    : [TransitEntry]     = [];
@@ -322,10 +323,32 @@ actor {
     godowns := Array.filter(godowns, func(g : Godown) : Bool { g.id != id });
   };
 
+  // Returns all categories (for backup/restore)
   public query func getCategories() : async [Category] { categories };
 
-  public func addCategory(id : Text, name : Text) : async () {
-    seed(); categories := Array.append(categories, [{ id; name; subCategories = [] }]);
+  // Returns categories filtered by businessId (default "b1" for unmapped)
+  public query func getCategoriesByBusiness(businessId : Text) : async [Category] {
+    if (businessId == "") return categories;
+    Array.filter(categories, func(c : Category) : Bool {
+      let bId = switch (Array.find(categoryBusinessIds, func(p : (Text, Text)) : Bool { p.0 == c.id })) {
+        case (?p) p.1;
+        case null "b1";
+      };
+      bId == businessId
+    })
+  };
+
+  public func addCategory(id : Text, name : Text, businessId : Text) : async () {
+    seed();
+    // Update or insert business mapping
+    categoryBusinessIds := Array.filter(categoryBusinessIds, func(p : (Text, Text)) : Bool { p.0 != id });
+    categoryBusinessIds := Array.append(categoryBusinessIds, [(id, businessId)]);
+    // Add category if not exists
+    let exists = Array.find(categories, func(c : Category) : Bool { c.id == id });
+    switch (exists) {
+      case null categories := Array.append(categories, [{ id; name; subCategories = [] }]);
+      case (?_) ();
+    };
   };
 
   public func updateCategory(id : Text, name : Text) : async () {
@@ -336,6 +359,7 @@ actor {
 
   public func deleteCategory(id : Text) : async () {
     categories := Array.filter(categories, func(c : Category) : Bool { c.id != id });
+    categoryBusinessIds := Array.filter(categoryBusinessIds, func(p : (Text, Text)) : Bool { p.0 != id });
   };
 
   public func addSubCategory(categoryId : Text, sc : SubCategory) : async () {
@@ -482,7 +506,7 @@ actor {
   };
 
   public query func getInventory(businessId : Text) : async [InventoryItem] {
-    Array.filter(inventory, func(i : InventoryItem) : Bool { i.businessId == businessId })
+    Array.filter(inventory, func(i : InventoryItem) : Bool { i.businessId == businessId or (businessId == "b1" and i.businessId == "") })
   };
 
   public func addInventoryItem(item : InventoryItem) : async () {
