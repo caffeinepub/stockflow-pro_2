@@ -963,7 +963,8 @@ function SettingsTab({
               <div className="space-y-4 mb-6">
                 {editingCategoryFull.fields.map((f, i) => (
                   <div
-                    key={f.name || `field-${i}`}
+                    // biome-ignore lint/suspicious/noArrayIndexKey: index key intentional — fields have no stable ID and order is user-controlled
+                    key={`field-${i}`}
                     className="bg-gray-50 p-5 rounded-2xl border relative"
                   >
                     <button

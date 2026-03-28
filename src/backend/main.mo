@@ -188,6 +188,7 @@ actor {
   stable var sales             : [SaleEntry]        = [];
   stable var txHistory         : [TxRecord]         = [];
   stable var appSettings       : Text               = "{}";
+  stable var categoryBusinessMap : [(Text, Text)] = []; // (categoryId, businessId)
 
   let accessControlState = AccessControl.initState();
   include MixinAuthorization(accessControlState);
@@ -324,8 +325,21 @@ actor {
 
   public query func getCategories() : async [Category] { categories };
 
-  public func addCategory(id : Text, name : Text) : async () {
-    seed(); categories := Array.append(categories, [{ id; name; subCategories = [] }]);
+  public query func getCategoriesByBusiness(businessId : Text) : async [Category] {
+    // Return categories mapped to this business, plus unmapped ones for "b1" (legacy)
+    Array.filter(categories, func(c : Category) : Bool {
+      let mapping = Array.find(categoryBusinessMap, func((cId, _bId) : (Text, Text)) : Bool { cId == c.id });
+      switch (mapping) {
+        case (?(_cId, bId)) { bId == businessId };
+        case null { businessId == "b1" }; // legacy categories belong to b1
+      }
+    })
+  };
+
+  public func addCategory(id : Text, name : Text, businessId : Text) : async () {
+    seed();
+    categories := Array.append(categories, [{ id; name; subCategories = [] }]);
+    categoryBusinessMap := Array.append(categoryBusinessMap, [(id, businessId)]);
   };
 
   public func updateCategory(id : Text, name : Text) : async () {

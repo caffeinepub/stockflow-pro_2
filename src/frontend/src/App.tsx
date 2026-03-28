@@ -455,7 +455,6 @@ export default function App() {
       return {};
     }
   });
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally persist on change
   useEffect(() => {
     localStorage.setItem("categoryUnits", JSON.stringify(categoryUnits));
   }, [categoryUnits]);
@@ -688,13 +687,33 @@ export default function App() {
             };
           }
         }
-        if (backendCats.length > 0) {
-          setCategories(backendCats.map(fromBackendCategory));
-          for (const c of backendCats) {
-            categoryMapRef.current[c.name] = {
-              id: c.id,
-              subCategories: c.subCategories,
-            };
+        // Load categories per business (fall back to global if business-specific returns empty)
+        try {
+          const bizCats = await (actor as any).getCategoriesByBusiness(
+            resolvedBusinessId,
+          );
+          const catsToUse =
+            (bizCats as typeof backendCats).length > 0
+              ? (bizCats as typeof backendCats)
+              : backendCats;
+          if (catsToUse.length > 0) {
+            setCategories(catsToUse.map(fromBackendCategory));
+            for (const c of catsToUse) {
+              categoryMapRef.current[c.name] = {
+                id: c.id,
+                subCategories: c.subCategories,
+              };
+            }
+          }
+        } catch {
+          if (backendCats.length > 0) {
+            setCategories(backendCats.map(fromBackendCategory));
+            for (const c of backendCats) {
+              categoryMapRef.current[c.name] = {
+                id: c.id,
+                subCategories: c.subCategories,
+              };
+            }
           }
         }
         if (backendPrefixes.length > 0) {
@@ -802,6 +821,39 @@ export default function App() {
       }
     })();
   }, [actor]);
+
+  // Reload categories and business-specific data when active business changes (after initial load)
+  useEffect(() => {
+    if (!actor || !activeBusinessId) return;
+    (async () => {
+      try {
+        const bizCats = await (actor as any).getCategoriesByBusiness(
+          activeBusinessId,
+        );
+        if ((bizCats as unknown[]).length > 0) {
+          setCategories(
+            (bizCats as unknown[]).map(
+              fromBackendCategory as (c: unknown) => Category,
+            ),
+          );
+          const newMap: Record<
+            string,
+            { id: string; subCategories: BackendSubCategory[] }
+          > = {};
+          for (const c of bizCats as BackendCategory[]) {
+            newMap[c.name] = { id: c.id, subCategories: c.subCategories };
+          }
+          categoryMapRef.current = newMap;
+        } else {
+          // No categories for this business yet — show empty
+          setCategories([]);
+          categoryMapRef.current = {};
+        }
+      } catch {
+        // non-critical
+      }
+    })();
+  }, [activeBusinessId, actor]);
 
   // Synced setters
   const setUsersWithBackend: React.Dispatch<React.SetStateAction<AppUser[]>> = (
@@ -931,7 +983,10 @@ export default function App() {
     });
     for (const c of added) {
       const id = c.name.toLowerCase().replace(/\s+/g, "-");
-      backendSave(actor.addCategory(id, c.name), "addCategory");
+      backendSave(
+        (actor as any).addCategory(id, c.name, activeBusinessId),
+        "addCategory",
+      );
       for (const f of c.fields) {
         const sc: BackendSubCategory = {
           id: f.name.toLowerCase().replace(/\s+/g, "-"),
@@ -1491,7 +1546,7 @@ export default function App() {
         if (data.categories) {
           for (const cat of data.categories as Category[]) {
             const catId = cat.name.toLowerCase().replace(/\s+/g, "-");
-            await (actor as any).addCategory(catId, cat.name);
+            await (actor as any).addCategory(catId, cat.name, activeBusinessId);
             for (const f of cat.fields) {
               await (actor as any).addSubCategory(catId, {
                 id: f.name.toLowerCase().replace(/\s+/g, "-"),
@@ -1990,6 +2045,7 @@ export default function App() {
             thresholdExcludedItems={thresholdExcludedItems}
             categoryUnits={categoryUnits}
             itemUnitOverrides={itemUnitOverrides}
+            inwardSaved={inwardSaved}
           />
         )}
         {activeTab === "transit" && (

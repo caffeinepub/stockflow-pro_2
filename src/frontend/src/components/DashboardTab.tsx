@@ -24,6 +24,7 @@ function DashboardTab({
   thresholdExcludedItems = [],
   categoryUnits = {},
   itemUnitOverrides = {},
+  inwardSaved = [],
 }: {
   inventory: Record<string, InventoryItem>;
   minStockThreshold: number;
@@ -33,6 +34,7 @@ function DashboardTab({
   thresholdExcludedItems?: string[];
   categoryUnits?: Record<string, "pcs" | "dozen">;
   itemUnitOverrides?: Record<string, "pcs" | "dozen">;
+  inwardSaved?: InwardSavedEntry[];
 }) {
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -226,40 +228,48 @@ function DashboardTab({
                               )}
                             </div>
                             {(() => {
-                              // Fix 7: Show ALL bilty numbers for this item
-                              const allInwardTxs = transactions
+                              // Bilty linkage: use inwardSaved as primary source (persists after refresh)
+                              const savedEntries = inwardSaved
+                                .filter(
+                                  (s) =>
+                                    (!s.businessId ||
+                                      s.businessId === activeBusinessId) &&
+                                    s.items?.some(
+                                      (si) =>
+                                        si.itemName?.toLowerCase() ===
+                                          item.itemName?.toLowerCase() &&
+                                        si.category === item.category,
+                                    ),
+                                )
+                                .sort((a, b) =>
+                                  (a.savedAt || "").localeCompare(
+                                    b.savedAt || "",
+                                  ),
+                                );
+                              // Also collect bilty numbers from transactions (for in-memory entries)
+                              const txBiltyNos = transactions
                                 .filter(
                                   (tx) =>
                                     (!tx.businessId ||
                                       tx.businessId === activeBusinessId) &&
                                     (tx.type === "INWARD" ||
                                       tx.type === "DIRECT_STOCK") &&
+                                    tx.biltyNo &&
                                     (tx.sku === item.sku ||
                                       (tx.itemName?.toLowerCase() ===
                                         item.itemName?.toLowerCase() &&
-                                        tx.category === item.category) ||
-                                      tx.baleItemsList?.some(
-                                        (bi: {
-                                          itemName?: string;
-                                          category?: string;
-                                        }) =>
-                                          bi.itemName?.toLowerCase() ===
-                                            item.itemName?.toLowerCase() &&
-                                          bi.category === item.category,
-                                      )),
+                                        tx.category === item.category)),
                                 )
-                                .sort((a, b) =>
-                                  (a.date || "").localeCompare(b.date || ""),
-                                );
-                              if (allInwardTxs.length === 0) return null;
+                                .map((tx) => tx.biltyNo as string);
+                              const savedBiltyNos = savedEntries
+                                .map((s) => s.biltyNumber)
+                                .filter(Boolean) as string[];
                               const uniqueBiltyNos = [
-                                ...new Set(
-                                  allInwardTxs
-                                    .map((tx) => tx.biltyNo)
-                                    .filter(Boolean),
-                                ),
+                                ...new Set([...savedBiltyNos, ...txBiltyNos]),
                               ];
-                              const firstTx = allInwardTxs[0];
+                              const firstEntry = savedEntries[0];
+                              if (uniqueBiltyNos.length === 0 && !firstEntry)
+                                return null;
                               return (
                                 <div className="mt-1.5 space-y-0.5">
                                   <div className="flex flex-wrap gap-1">
@@ -272,12 +282,14 @@ function DashboardTab({
                                       </span>
                                     ))}
                                   </div>
-                                  <p className="text-[9px] text-gray-400 font-bold">
-                                    First added{" "}
-                                    {firstTx.date?.split("T")[0] ||
-                                      firstTx.date}{" "}
-                                    · {firstTx.user || "?"}
-                                  </p>
+                                  {firstEntry && (
+                                    <p className="text-[9px] text-gray-400 font-bold">
+                                      First added{" "}
+                                      {firstEntry.savedAt?.split("T")[0] ||
+                                        firstEntry.savedAt}{" "}
+                                      · {firstEntry.savedBy || "?"}
+                                    </p>
+                                  )}
                                 </div>
                               );
                             })()}
@@ -398,6 +410,34 @@ function ItemHistoryPanel({
       return false;
     })
     .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+
+  // Build inward entries from inwardSaved (persists after refresh, primary source for bilty)
+  const savedInwardEntries = inwardSaved
+    .filter(
+      (s) =>
+        (!s.businessId || s.businessId === activeBusinessId) &&
+        s.items?.some(
+          (si) =>
+            si.itemName?.toLowerCase() === item.itemName?.toLowerCase() &&
+            si.category === item.category,
+        ),
+    )
+    .sort((a, b) => (a.savedAt || "").localeCompare(b.savedAt || ""));
+
+  // Deduplicate: avoid showing both a saved entry and a transaction for the same bilty
+  const savedBiltyNos = new Set(
+    savedInwardEntries.map((s) => s.biltyNumber?.toLowerCase()),
+  );
+  const nonInwardTxs = itemTxs.filter(
+    (tx) => tx.type !== "INWARD" && tx.type !== "DIRECT_STOCK",
+  );
+  // Keep inward transactions only if they have a biltyNo NOT already covered by inwardSaved
+  const extraInwardTxs = itemTxs.filter(
+    (tx) =>
+      (tx.type === "INWARD" || tx.type === "DIRECT_STOCK") &&
+      tx.biltyNo &&
+      !savedBiltyNos.has(tx.biltyNo.toLowerCase()),
+  );
 
   const dotColor = (type: string) => {
     if (
@@ -536,39 +576,110 @@ function ItemHistoryPanel({
             <h4 className="font-black text-xs uppercase tracking-widest text-gray-500 mb-4">
               Transaction Timeline
             </h4>
-            {itemTxs.length === 0 ? (
+            {itemTxs.length === 0 && savedInwardEntries.length === 0 ? (
               <p className="text-gray-400 font-bold text-xs text-center py-8">
                 No transactions recorded yet
               </p>
             ) : (
               <div className="space-y-4">
-                {/* Fix 8: Group inward entries by bilty number */}
+                {/* Group inward entries by bilty — use inwardSaved as primary source */}
                 {(() => {
-                  const inwardTxs = itemTxs.filter(
-                    (tx) =>
-                      tx.type === "INWARD" ||
-                      tx.type === "OPENING_STOCK" ||
-                      tx.type === "DIRECT_STOCK",
+                  const openingTxs = itemTxs.filter(
+                    (tx) => tx.type === "OPENING_STOCK",
                   );
-                  const transferTxs = itemTxs.filter(
+                  const transferTxs = nonInwardTxs.filter(
                     (tx) => tx.type === "transfer",
                   );
-                  const otherTxs = itemTxs.filter(
+                  const otherTxs = nonInwardTxs.filter(
                     (tx) =>
-                      tx.type !== "INWARD" &&
-                      tx.type !== "OPENING_STOCK" &&
-                      tx.type !== "DIRECT_STOCK" &&
-                      tx.type !== "transfer",
+                      tx.type !== "OPENING_STOCK" && tx.type !== "transfer",
                   );
                   return (
                     <>
-                      {inwardTxs.length > 0 && (
+                      {(savedInwardEntries.length > 0 ||
+                        extraInwardTxs.length > 0) && (
                         <div>
                           <p className="text-[9px] font-black uppercase text-green-600 tracking-widest mb-2">
                             Stock Receipts by Bilty
                           </p>
                           <div className="space-y-3">
-                            {inwardTxs.map((tx) => (
+                            {/* Render from inwardSaved (persists after refresh) */}
+                            {savedInwardEntries.map((saved) => {
+                              const thisItem = saved.items?.find(
+                                (si) =>
+                                  si.itemName?.toLowerCase() ===
+                                    item.itemName?.toLowerCase() &&
+                                  si.category === item.category,
+                              );
+                              const totalQty = thisItem ? thisItem.qty : 0;
+                              return (
+                                <div
+                                  key={`saved-${saved.id}-${saved.biltyNumber}`}
+                                  className="flex gap-4"
+                                >
+                                  <div className="flex flex-col items-center">
+                                    <div className="w-3 h-3 rounded-full mt-1.5 shrink-0 bg-green-500" />
+                                    <div className="w-0.5 bg-gray-200 flex-1 mt-1" />
+                                  </div>
+                                  <div className="pb-4 flex-1">
+                                    <div className="bg-green-50 border border-green-100 rounded-2xl p-3 space-y-2">
+                                      <div className="flex items-center justify-between flex-wrap gap-2">
+                                        <div>
+                                          <p className="font-black text-sm text-green-700">
+                                            ✅ {totalQty ?? "?"} pcs added
+                                          </p>
+                                          <p className="text-[10px] font-bold text-gray-400 mt-0.5">
+                                            By{" "}
+                                            <b className="text-gray-600">
+                                              {saved.savedBy || "?"}
+                                            </b>{" "}
+                                            ·{" "}
+                                            {saved.savedAt?.split("T")[0] ||
+                                              saved.savedAt}
+                                          </p>
+                                        </div>
+                                        {saved.biltyNumber && (
+                                          <span className="inline-flex items-center gap-1 text-[11px] font-bold bg-green-100 text-green-800 px-2.5 py-1 rounded-full border border-green-200">
+                                            📦 {saved.biltyNumber}
+                                          </span>
+                                        )}
+                                      </div>
+                                      {thisItem && (
+                                        <div className="space-y-1 pt-1 border-t border-green-200">
+                                          <div className="text-[10px] font-bold text-gray-700">
+                                            <span className="text-gray-900">
+                                              {thisItem.itemName}
+                                            </span>
+                                            <span className="text-gray-400 ml-1">
+                                              ({thisItem.category})
+                                            </span>
+                                            <span className="ml-2 text-green-700">
+                                              Qty: {thisItem.qty}
+                                            </span>
+                                            <div className="flex gap-1 flex-wrap mt-1">
+                                              {(thisItem.shopQty || 0) > 0 && (
+                                                <span className="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-md border border-blue-100">
+                                                  🏪 Shop: {thisItem.shopQty}
+                                                </span>
+                                              )}
+                                              {(thisItem.godownQty || 0) >
+                                                0 && (
+                                                <span className="text-[9px] bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded-md border border-amber-100">
+                                                  🏭 Godown:{" "}
+                                                  {thisItem.godownQty}
+                                                </span>
+                                              )}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                            {/* Extra inward transactions not in inwardSaved */}
+                            {extraInwardTxs.map((tx) => (
                               <div key={tx.id} className="flex gap-4">
                                 <div className="flex flex-col items-center">
                                   <div className="w-3 h-3 rounded-full mt-1.5 shrink-0 bg-green-500" />
@@ -600,16 +711,7 @@ function ItemHistoryPanel({
                                         tx.baleItemsList &&
                                         tx.baleItemsList.length > 0
                                           ? tx.baleItemsList
-                                          : tx.biltyNo
-                                            ? inwardSaved.find(
-                                                (s) =>
-                                                  s.biltyNumber?.toLowerCase() ===
-                                                    tx.biltyNo?.toLowerCase() &&
-                                                  (!s.businessId ||
-                                                    s.businessId ===
-                                                      activeBusinessId),
-                                              )?.items || []
-                                            : [];
+                                          : [];
                                       return (
                                         effectiveItems.length > 0 && (
                                           <div className="space-y-1 pt-1 border-t border-green-200">
@@ -699,6 +801,38 @@ function ItemHistoryPanel({
                                       By{" "}
                                       <b className="text-gray-600">
                                         {tx.transferredBy || tx.user || "?"}
+                                      </b>{" "}
+                                      · {tx.date?.split("T")[0] || tx.date}
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {openingTxs.length > 0 && (
+                        <div>
+                          <p className="text-[9px] font-black uppercase text-blue-600 tracking-widest mb-2">
+                            Opening Stock
+                          </p>
+                          <div className="space-y-3">
+                            {openingTxs.map((tx) => (
+                              <div key={tx.id} className="flex gap-4">
+                                <div className="flex flex-col items-center">
+                                  <div className="w-3 h-3 rounded-full mt-1.5 shrink-0 bg-blue-500" />
+                                  <div className="w-0.5 bg-gray-200 flex-1 mt-1" />
+                                </div>
+                                <div className="pb-4 flex-1">
+                                  <div className="bg-blue-50 border border-blue-100 rounded-2xl p-3">
+                                    <p className="font-black text-sm text-blue-700">
+                                      📋 {tx.itemsCount ?? "?"} pcs opening
+                                      stock
+                                    </p>
+                                    <p className="text-[10px] font-bold text-gray-400 mt-0.5">
+                                      By{" "}
+                                      <b className="text-gray-600">
+                                        {tx.user || "?"}
                                       </b>{" "}
                                       · {tx.date?.split("T")[0] || tx.date}
                                     </p>

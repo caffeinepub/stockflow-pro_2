@@ -283,7 +283,8 @@ export interface backendInterface {
     _initializeAccessControlWithSecret(userSecret: string): Promise<void>;
     addBiltyPrefix(id: string, prefix: string): Promise<void>;
     addBusiness(id: string, name: string): Promise<void>;
-    addCategory(id: string, name: string): Promise<void>;
+    addCategory(id: string, name: string, businessId: string): Promise<void>;
+    getCategoriesByBusiness(businessId: string): Promise<unknown[]>;
     addDelivery(entry: DeliveryEntry): Promise<string>;
     addGodown(id: string, name: string, businessId: string): Promise<void>;
     addInventoryItem(item: InventoryItem): Promise<void>;
@@ -387,17 +388,17 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async addCategory(arg0: string, arg1: string): Promise<void> {
+    async addCategory(arg0: string, arg1: string, arg2: string = 'b1'): Promise<void> {
         if (this.processError) {
             try {
-                const result = await this.actor.addCategory(arg0, arg1);
+                const result = await this.actor.addCategory(arg0, arg1, arg2);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.addCategory(arg0, arg1);
+            const result = await this.actor.addCategory(arg0, arg1, arg2);
             return result;
         }
     }
@@ -805,6 +806,20 @@ export class Backend implements backendInterface {
         } else {
             const result = await this.actor.getCallerUserRole();
             return from_candid_UserRole_n9(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async getCategoriesByBusiness(businessId: string): Promise<unknown[]> {
+        if (this.processError) {
+            try {
+                const result = await (this.actor as any).getCategoriesByBusiness(businessId);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await (this.actor as any).getCategoriesByBusiness(businessId);
+            return result;
         }
     }
     async getCategories(): Promise<Array<Category>> {
