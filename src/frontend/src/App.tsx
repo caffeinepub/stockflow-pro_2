@@ -435,6 +435,7 @@ export default function App() {
     { id: "default", name: "StockFlow Default" },
   ]);
   const [activeBusinessId, setActiveBusinessId] = useState("b1");
+  const [dataLoadVersion, setDataLoadVersion] = useState(0);
   const [inventory, setInventory] = useState<Record<string, InventoryItem>>({});
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [pendingParcels, setPendingParcels] = useState<PendingParcel[]>([]);
@@ -666,6 +667,7 @@ export default function App() {
   // Load all data from backend on actor ready (config + transactional in one pass)
   useEffect(() => {
     if (!actor) return;
+    void dataLoadVersion; // trigger reload after login seeds canister
     setIsDataLoading(true);
     (async () => {
       try {
@@ -849,13 +851,14 @@ export default function App() {
         setIsDataLoading(false);
       }
     })();
-  }, [actor]);
+  }, [actor, dataLoadVersion]);
 
   // Reload ALL business-specific data when active business changes (after initial load)
   useEffect(() => {
     if (!actor || !activeBusinessId || !isInitialLoadDoneRef.current) return;
     setIsDataLoading(true);
     (async () => {
+      const prevBusinessId = activeBusinessId;
       try {
         const [
           bizGodowns,
@@ -958,11 +961,12 @@ export default function App() {
         setTransfers(backendTransfers as TransferEntry[]);
       } catch (e) {
         console.error("Business switch data reload failed:", e);
-        // Always clear stale data on switch error — prevents previous business data showing in new business
-        setCategories([]);
-        setGodowns([]);
-        categoryMapRef.current = {};
-        godownMapRef.current = {};
+        // Revert to previous business on error — preserves current data
+        setActiveBusinessId(prevBusinessId);
+        setNotification({
+          message: "Failed to switch business. Please try again.",
+          type: "error",
+        });
       } finally {
         setIsDataLoading(false);
       }
@@ -1112,6 +1116,7 @@ export default function App() {
         (actor as any).addCategory(id, c.name, activeBusinessIdRef.current),
         "addCategory",
       );
+      categoryMapRef.current[c.name] = { id, subCategories: [] };
       for (const f of c.fields) {
         const sc: BackendSubCategory = {
           id: f.name.toLowerCase().replace(/\s+/g, "-"),
@@ -1216,7 +1221,10 @@ export default function App() {
     ? async (username: string, password: string): Promise<AppUser | null> => {
         try {
           const result = await actor.login(username, password);
-          if ("ok" in result) return fromBackendUser(result.ok) as AppUser;
+          if ("ok" in result) {
+            setDataLoadVersion((v) => v + 1);
+            return fromBackendUser(result.ok) as AppUser;
+          }
           return null;
         } catch {
           return null;
