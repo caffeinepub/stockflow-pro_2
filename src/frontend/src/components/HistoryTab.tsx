@@ -34,6 +34,8 @@ function HistoryTab({
   godowns,
   showNotification,
   inwardSaved = [],
+  updateStock,
+  setInwardSaved,
 }: {
   transactions: Transaction[];
   setConfirmDialog: (
@@ -49,6 +51,14 @@ function HistoryTab({
   godowns: string[];
   showNotification: (m: string, t?: string) => void;
   inwardSaved?: InwardSavedEntry[];
+  updateStock?: (
+    sku: string,
+    details: Partial<InventoryItem>,
+    shopDelta: number,
+    godownDelta: number,
+    targetGodown?: string,
+  ) => void;
+  setInwardSaved?: React.Dispatch<React.SetStateAction<InwardSavedEntry[]>>;
 }) {
   const [search, setSearch] = useState("");
   const [filterDateFrom, setFilterDateFrom] = useState("");
@@ -867,7 +877,9 @@ function HistoryTab({
               <button
                 type="button"
                 onClick={() => {
-                  // Recalculate itemsCount from baleItemsList
+                  const oldTx = transactions.find(
+                    (tx) => tx.id === editingTx.id,
+                  );
                   const updatedTx = {
                     ...editingTx,
                     itemsCount:
@@ -886,6 +898,110 @@ function HistoryTab({
                   setTransactions((prev) =>
                     prev.map((tx) => (tx.id === editingTx.id ? updatedTx : tx)),
                   );
+
+                  // Apply stock delta for inward-type entries
+                  if (
+                    updateStock &&
+                    oldTx &&
+                    (editingTx.type === "INWARD" ||
+                      editingTx.type === "DIRECT_STOCK" ||
+                      editingTx.type === "inward")
+                  ) {
+                    const oldItems = oldTx.baleItemsList || [];
+                    const newItems = editingTx.baleItemsList || [];
+                    const deltaMap: Record<
+                      string,
+                      {
+                        shopDelta: number;
+                        godownDeltas: Record<string, number>;
+                        details: Partial<InventoryItem>;
+                      }
+                    > = {};
+                    for (const bi of oldItems) {
+                      const sku = [bi.category, bi.itemName]
+                        .filter(Boolean)
+                        .join("-")
+                        .toLowerCase()
+                        .replace(/\s+/g, "-");
+                      if (!deltaMap[sku])
+                        deltaMap[sku] = {
+                          shopDelta: 0,
+                          godownDeltas: {},
+                          details: {
+                            category: bi.category,
+                            itemName: bi.itemName,
+                          },
+                        };
+                      deltaMap[sku].shopDelta -= bi.shopQty || 0;
+                      for (const [gdown, qty] of Object.entries(
+                        bi.godownQuants || {},
+                      )) {
+                        deltaMap[sku].godownDeltas[gdown] =
+                          (deltaMap[sku].godownDeltas[gdown] || 0) - (qty || 0);
+                      }
+                    }
+                    for (const bi of newItems) {
+                      const sku = [bi.category, bi.itemName]
+                        .filter(Boolean)
+                        .join("-")
+                        .toLowerCase()
+                        .replace(/\s+/g, "-");
+                      if (!deltaMap[sku])
+                        deltaMap[sku] = {
+                          shopDelta: 0,
+                          godownDeltas: {},
+                          details: {
+                            category: bi.category,
+                            itemName: bi.itemName,
+                          },
+                        };
+                      deltaMap[sku].shopDelta += bi.shopQty || 0;
+                      for (const [gdown, qty] of Object.entries(
+                        bi.godownQuants || {},
+                      )) {
+                        deltaMap[sku].godownDeltas[gdown] =
+                          (deltaMap[sku].godownDeltas[gdown] || 0) + (qty || 0);
+                      }
+                    }
+                    for (const [sku, delta] of Object.entries(deltaMap)) {
+                      const mainGodownDelta = Object.values(
+                        delta.godownDeltas,
+                      ).reduce((a, b) => a + b, 0);
+                      if (delta.shopDelta !== 0 || mainGodownDelta !== 0) {
+                        for (const [gdown, gDelta] of Object.entries(
+                          delta.godownDeltas,
+                        )) {
+                          if (gDelta !== 0)
+                            updateStock(sku, delta.details, 0, gDelta, gdown);
+                        }
+                        if (delta.shopDelta !== 0)
+                          updateStock(sku, delta.details, delta.shopDelta, 0);
+                      }
+                    }
+                  }
+
+                  // Update inwardSaved record if editing an inward entry
+                  if (
+                    setInwardSaved &&
+                    oldTx &&
+                    (editingTx.type === "INWARD" ||
+                      editingTx.type === "DIRECT_STOCK" ||
+                      editingTx.type === "inward")
+                  ) {
+                    setInwardSaved((prev: InwardSavedEntry[]) =>
+                      prev.map((entry: InwardSavedEntry) =>
+                        entry.biltyNumber === editingTx.biltyNo
+                          ? {
+                              ...entry,
+                              items:
+                                (editingTx.baleItemsList as typeof entry.items) ||
+                                entry.items,
+                            }
+                          : entry,
+                      ),
+                    );
+                  }
+
                   setEditingTx(null);
                   showNotification("Entry updated successfully", "success");
                 }}

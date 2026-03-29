@@ -439,7 +439,7 @@ export default function App() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [pendingParcels, setPendingParcels] = useState<PendingParcel[]>([]);
   const [transitGoods, setTransitGoods] = useState<TransitRecord[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [categories, setCategories] = useState<Category[]>(INITIAL_CATEGORIES);
   const [categoryUnits, setCategoryUnits] = useState<
     Record<string, "pcs" | "dozen">
   >(() => {
@@ -468,7 +468,10 @@ export default function App() {
       JSON.stringify(itemUnitOverrides),
     );
   }, [itemUnitOverrides]);
-  const [godowns, setGodowns] = useState<string[]>([]);
+  const [godowns, setGodowns] = useState<string[]>([
+    "Main Godown",
+    "Side Godown",
+  ]);
   const [biltyPrefixes, setBiltyPrefixes] = useState<string[]>([
     "sola",
     "erob",
@@ -696,18 +699,21 @@ export default function App() {
           }
         }
         setActiveBusinessId(resolvedBusinessId);
-        // Only build godownMapRef from global list for ID lookups — do NOT set godowns state from it
-        for (const g of backendGodowns) {
-          godownMapRef.current[g.name] = {
-            id: g.id,
-            businessId: g.businessId,
-          };
+        if (backendGodowns.length > 0) {
+          setGodowns(backendGodowns.map((g: BackendGodown) => g.name));
+          for (const g of backendGodowns) {
+            godownMapRef.current[g.name] = {
+              id: g.id,
+              businessId: g.businessId,
+            };
+          }
         }
-        // Always load godowns filtered by the resolved business — no cross-business bleed
+        // Reload godowns filtered by resolved business
         try {
           const bizGodowns = await (actor as any).getGodownsByBusiness(
             resolvedBusinessId,
           );
+          // Always use business-specific godowns (even if empty list) to avoid bleed-over
           godownMapRef.current = {};
           setGodowns((bizGodowns as any[]).map((g: any) => g.name));
           for (const g of bizGodowns as any[]) {
@@ -717,9 +723,7 @@ export default function App() {
             };
           }
         } catch {
-          // On error leave godowns empty — don't show B1 godowns to B2 users
-          setGodowns([]);
-          godownMapRef.current = {};
+          /* fallback to getGodowns() result */
         }
         // Load categories per business — no fallback to global to prevent cross-business bleed
         try {
@@ -1501,8 +1505,7 @@ export default function App() {
     let freshTransactions = transactions;
     let freshTransitGoods = transitGoods;
     let freshCategories = categories;
-    let freshGodowns: Array<{ name: string; businessId: string }> | string[] =
-      godowns.map((name) => ({ name, businessId: activeBusinessId }));
+    let freshGodowns = godowns;
     let freshUsers = users;
     let freshBusinesses = businesses;
     let freshBiltyPrefixes = biltyPrefixes;
@@ -1537,10 +1540,7 @@ export default function App() {
           name: b.name,
           description: b.description ?? "",
         }));
-        freshGodowns = backendGodowns.map((g: any) => ({
-          name: g.name,
-          businessId: g.businessId || "b1",
-        }));
+        freshGodowns = backendGodowns.map((g: any) => g.name);
         freshCategories = backendCats.map(fromBackendCategory);
         freshBiltyPrefixes = backendPrefixes.map((p: any) => p.prefix);
 
@@ -1782,7 +1782,7 @@ export default function App() {
         if (
           data.godowns &&
           Array.isArray(data.godowns) &&
-          (data.godowns as any[]).length > 0
+          (data.godowns as string[]).length > 0
         ) {
           const existingGodownsAll = await (actor as any).getGodowns();
           await Promise.all(
@@ -1791,15 +1791,9 @@ export default function App() {
             ),
           );
           await Promise.all(
-            (data.godowns as any[]).map((godown: any) => {
-              // Support both old format (string) and new format ({name, businessId})
-              const name = typeof godown === "string" ? godown : godown.name;
-              const bizId =
-                typeof godown === "string"
-                  ? restoreBizId
-                  : godown.businessId || restoreBizId;
+            (data.godowns as string[]).map((name: string) => {
               const id = `${name.toLowerCase().replace(/\s+/g, "-")}-restored-${Date.now()}`;
-              return (actor as any).addGodown(id, name, bizId);
+              return (actor as any).addGodown(id, name, restoreBizId);
             }),
           );
         }

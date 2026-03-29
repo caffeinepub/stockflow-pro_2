@@ -664,9 +664,10 @@ function InwardSavedTab({
                                 <input
                                   type="number"
                                   value={
-                                    idx === 0 && godowns.indexOf(gName) === 0
+                                    itm.godownBreakdown?.[gName] ??
+                                    (godowns.indexOf(gName) === 0
                                       ? itm.godownQty
-                                      : 0
+                                      : 0)
                                   }
                                   onChange={(e) => {
                                     const upd = [...editingEntry.items];

@@ -500,7 +500,7 @@ actor {
   };
 
   public query func getInventory(businessId : Text) : async [InventoryItem] {
-    Array.filter(inventory, func(i : InventoryItem) : Bool { i.businessId == businessId })
+    Array.filter(inventory, func(i : InventoryItem) : Bool { i.businessId == businessId or (i.businessId == "" and businessId == "b1") })
   };
 
   public func addInventoryItem(item : InventoryItem) : async () {
