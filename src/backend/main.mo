@@ -254,35 +254,13 @@ actor {
 
   func seed() {
     if (seedVersion >= 4) {
-      if (seedVersion < 5) {
-        seedVersion := 5;
-        categories := [
-          { id = "cat1"; name = "Safi";
-            subCategories = [
-              { id = "sc1"; name = "Size";  fieldType = "text";   options = [] },
-              { id = "sc2"; name = "Color"; fieldType = "select"; options = ["black","tiranga","mix"] }
-            ]
-          },
-          { id = "cat2"; name = "Lungi";
-            subCategories = [
-              { id = "sc3"; name = "Size";  fieldType = "select"; options = ["2 mtr","2.25 mtr","2.5 mtr"] },
-              { id = "sc4"; name = "Color"; fieldType = "select"; options = ["plain white","plain colour","mix"] }
-            ]
-          },
-          { id = "cat3"; name = "Napkin";
-            subCategories = [
-              { id = "sc5"; name = "Size"; fieldType = "select"; options = ["14x21","12x18","16x24"] }
-            ]
-          }
-        ];
-        // Ensure seeded categories are mapped to b1
-        ensureCategoryMap();
-      };
-      // Version 6: repair any category without a map entry (run once)
-      if (seedVersion < 6) {
-        seedVersion := 6;
-        ensureCategoryMap();
-      };
+      // Versions 5 and 6 previously called ensureCategoryMap() which could corrupt
+      // the map by incorrectly inferring business ownership from category IDs.
+      // Now we just bump the version without any map repairs.
+      if (seedVersion < 5) { seedVersion := 5 };
+      if (seedVersion < 6) { seedVersion := 6 };
+      // Version 7: no-op bump to skip any future bad repair calls
+      if (seedVersion < 7) { seedVersion := 7 };
       return;
     };
     seedVersion := 4;

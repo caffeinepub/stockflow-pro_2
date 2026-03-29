@@ -958,6 +958,11 @@ export default function App() {
         setTransfers(backendTransfers as TransferEntry[]);
       } catch (e) {
         console.error("Business switch data reload failed:", e);
+        // Always clear stale data on switch error — prevents previous business data showing in new business
+        setCategories([]);
+        setGodowns([]);
+        categoryMapRef.current = {};
+        godownMapRef.current = {};
       } finally {
         setIsDataLoading(false);
       }
@@ -1682,12 +1687,12 @@ export default function App() {
         );
         if (data.categories) {
           for (const cat of data.categories as Category[]) {
-            const catId = cat.name.toLowerCase().replace(/\s+/g, "-");
-            await (actor as any).addCategory(
-              catId,
-              cat.name,
-              (cat as any).businessId || restoreBizId,
-            );
+            // Use business-prefixed IDs to prevent cross-business category collisions.
+            // e.g., "safi" in B1 becomes "b1-safi", in B2 becomes "b2-safi".
+            // This ensures deleting in one business never affects another.
+            const catBizId = (cat as any).businessId || restoreBizId;
+            const catId = `${catBizId}-${cat.name.toLowerCase().replace(/\s+/g, "-")}`;
+            await (actor as any).addCategory(catId, cat.name, catBizId);
             for (const f of cat.fields) {
               await (actor as any).addSubCategory(catId, {
                 id: f.name.toLowerCase().replace(/\s+/g, "-"),
