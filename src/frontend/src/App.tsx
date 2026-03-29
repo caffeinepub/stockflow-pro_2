@@ -2545,6 +2545,7 @@ export default function App() {
             setDeliveryRecords={setDeliveryRecords}
             transactions={transactions}
             setTransactions={setTransactionsWithBackend as any}
+            setInwardSaved={setInwardSavedWithBackend}
             updateStock={updateStock}
             showNotification={showNotification}
             actor={actor}

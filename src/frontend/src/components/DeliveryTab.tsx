@@ -6,6 +6,7 @@ import type {
   Category,
   DeliveryRecord,
   InventoryItem,
+  InwardSavedEntry,
   PendingParcel,
   Transaction,
 } from "../types";
@@ -23,6 +24,7 @@ function DeliveryTab({
   setDeliveryRecords,
   transactions: _transactions,
   setTransactions,
+  setInwardSaved,
   updateStock: _updateStock,
   showNotification,
   onDeliveredBilty,
@@ -44,6 +46,7 @@ function DeliveryTab({
   setDeliveryRecords: React.Dispatch<React.SetStateAction<DeliveryRecord[]>>;
   transactions: Transaction[];
   setTransactions: React.Dispatch<React.SetStateAction<Transaction[]>>;
+  setInwardSaved: React.Dispatch<React.SetStateAction<InwardSavedEntry[]>>;
   updateStock: (
     sku: string,
     details: Partial<InventoryItem>,
@@ -246,6 +249,67 @@ function DeliveryTab({
         return;
       }
       setDeliveryRecords((prev) => [record, ...prev]);
+
+      // Auto-create inward + inward saved records when delivering from queue
+      if (sourceType === "QUEUE" && selectedQueue) {
+        const totalQty = validItems.reduce((s, i) => s + Number(i.qty), 0);
+        const baleItems = validItems.map((item) => ({
+          itemName: item.itemName,
+          category: item.category,
+          attributes: {},
+          qty: Number(item.qty),
+          shopQty: 0,
+          godownQuants: { [selectedGodown]: Number(item.qty) },
+          saleRate: 0,
+          purchaseRate: 0,
+        }));
+
+        setTransactions((prev) => [
+          Object.assign(
+            {
+              id: Date.now() + 1,
+              type: "INWARD",
+              biltyNo: selectedQueue.biltyNo,
+              businessId: activeBusinessId,
+              date: now.split("T")[0],
+              user: currentUser.username,
+              fromLocation: "Queue",
+              toLocation: selectedGodown,
+              notes: "Auto-inward from queue delivery",
+              itemsCount: totalQty,
+              baleItemsList: baleItems,
+            },
+            { linkedDeliveryId: record.id },
+          ),
+          ...prev,
+        ]);
+
+        const inwardSavedEntry: any = {
+          id: Date.now() + 2,
+          biltyNumber: selectedQueue.biltyNo,
+          baseNumber: selectedQueue.biltyNo,
+          packages: "1",
+          items: validItems.map((item) => ({
+            category: item.category,
+            itemName: item.itemName,
+            qty: Number(item.qty),
+            godownQty: Number(item.qty),
+            godownBreakdown: { [selectedGodown]: Number(item.qty) },
+            shopQty: 0,
+            saleRate: 0,
+            purchaseRate: 0,
+            attributes: {},
+          })),
+          savedBy: currentUser.username,
+          savedAt: now,
+          transporter: "Queue Delivery",
+          supplier: "",
+          businessId: activeBusinessId,
+          linkedDeliveryId: record.id,
+        };
+        setInwardSaved((prev) => [inwardSavedEntry, ...prev]);
+      }
+
       if (
         sourceType === "QUEUE" &&
         selectedQueue?.biltyNo &&
@@ -315,6 +379,58 @@ function DeliveryTab({
       setDeliveryRecords((prev) =>
         prev.map((r) => (r.id === editingRecord.id ? updatedRecord : r)),
       );
+
+      // Update linked INWARD transaction if this was a queue delivery
+      if (editingRecord.type === "QUEUE") {
+        const updatedBaleItems = editItems.map((item) => ({
+          itemName: item.itemName,
+          category: item.category,
+          attributes: {},
+          qty: item.qty,
+          shopQty: 0,
+          godownQuants: { [editGodown]: item.qty },
+          saleRate: 0,
+          purchaseRate: 0,
+        }));
+        const totalQty = editItems.reduce((s, i) => s + i.qty, 0);
+
+        setTransactions((prev) =>
+          prev.map((tx) => {
+            if ((tx as any).linkedDeliveryId === editingRecord.id) {
+              return Object.assign({}, tx, {
+                biltyNo: editingRecord.biltyNo,
+                toLocation: editGodown,
+                itemsCount: totalQty,
+                baleItemsList: updatedBaleItems,
+              });
+            }
+            return tx;
+          }),
+        );
+
+        setInwardSaved((prev) =>
+          prev.map((entry) => {
+            if ((entry as any).linkedDeliveryId === editingRecord.id) {
+              return Object.assign({}, entry, {
+                items: editItems.map((item) => ({
+                  category: item.category,
+                  itemName: item.itemName,
+                  qty: item.qty,
+                  godownQty: item.qty,
+                  godownBreakdown: { [editGodown]: item.qty },
+                  shopQty: 0,
+                  saleRate: 0,
+                  purchaseRate: 0,
+                  attributes: {},
+                })),
+                savedAt: new Date(editDeliveredAt).toISOString(),
+              });
+            }
+            return entry;
+          }),
+        );
+      }
+
       setEditingRecord(null);
       showNotification("Delivery updated successfully!", "success");
     } catch (e) {
