@@ -1,4 +1,5 @@
 import Time "mo:core/Time";
+import Char "mo:base/Char";
 import Array "mo:base/Array";
 import AccessControl "authorization/access-control";
 import MixinAuthorization "authorization/MixinAuthorization";
@@ -27,6 +28,8 @@ actor {
     options   : [Text];
   };
 
+  // Category type kept WITHOUT businessId to preserve stable variable compatibility.
+  // Business mapping is tracked via categoryBusinessMap below.
   type Category = {
     id            : Text;
     name          : Text;
@@ -188,18 +191,69 @@ actor {
   stable var sales             : [SaleEntry]        = [];
   stable var txHistory         : [TxRecord]         = [];
   stable var appSettings       : Text               = "{}";
-  stable var categoryBusinessMap : [(Text, Text)] = []; // (categoryId, businessId)
+  // (categoryId, businessId) — kept as stable var for backward compatibility.
+  // Populated reliably by addCategory, seed, and the repair step in ensureCategoryMap.
+  stable var categoryBusinessMap : [(Text, Text)]   = [];
 
   let accessControlState = AccessControl.initState();
   include MixinAuthorization(accessControlState);
 
-  stable var seeded : Bool = false;
-  stable var seedVersion : Nat = 0;
+  stable var seeded      : Bool = false;
+  stable var seedVersion : Nat  = 0;
+
+  // ---- Map helpers ----
+
+  // Return the businessId for a category from the map, or "" if not found.
+  func getCatBusiness(catId : Text) : Text {
+    let found = Array.find(categoryBusinessMap, func((cId, _bId) : (Text, Text)) : Bool { cId == catId });
+    switch (found) {
+      case (?(_, bId)) bId;
+      case null "";
+    }
+  };
+
+  // Ensure every category in `categories` has an entry in categoryBusinessMap.
+  // Derives business from ID prefix (b1-*, b2-*, etc.) before falling back to "b1".
+  func inferBusinessFromId(catId : Text) : Text {
+    if (catId.size() > 3) {
+      let prefix = catId.chars();
+      var buf = "";
+      var dashCount = 0;
+      label scan for (ch in prefix) {
+        if (ch == '-') {
+          dashCount += 1;
+          break scan;
+        };
+        buf := buf # (Char.toText(ch));
+      };
+      if (dashCount > 0 and buf != "") {
+        let match = Array.find(businesses, func(b : Business) : Bool { b.id == buf });
+        switch (match) {
+          case (?b) return b.id;
+          case null {};
+        };
+      };
+    };
+    "b1"
+  };
+
+  func ensureCategoryMap() {
+    for (c in categories.vals()) {
+      let inMap = Array.find(categoryBusinessMap, func((cId, _) : (Text, Text)) : Bool { cId == c.id });
+      switch (inMap) {
+        case null {
+          let bizId = inferBusinessFromId(c.id);
+          categoryBusinessMap := Array.append(categoryBusinessMap, [(c.id, bizId)]);
+        };
+        case (?_) {};
+      };
+    };
+  };
+
+  // ---- Seed ----
 
   func seed() {
-    // Version 4 forces re-seed with staff/supplier (no suffix)
     if (seedVersion >= 4) {
-      // Version 5: fix categories to match real business (Safi/Lungi/Napkin)
       if (seedVersion < 5) {
         seedVersion := 5;
         categories := [
@@ -221,6 +275,13 @@ actor {
             ]
           }
         ];
+        // Ensure seeded categories are mapped to b1
+        ensureCategoryMap();
+      };
+      // Version 6: repair any category without a map entry (run once)
+      if (seedVersion < 6) {
+        seedVersion := 6;
+        ensureCategoryMap();
       };
       return;
     };
@@ -249,6 +310,8 @@ actor {
         ]
       }
     ];
+    // Seed the category map for all seeded categories under b1
+    categoryBusinessMap := [("cat1","b1"),("cat2","b1"),("cat3","b1")];
     biltyPrefixes := [
       { id = "p1"; prefix = "sola" },
       { id = "p2"; prefix = "erob" },
@@ -310,7 +373,9 @@ actor {
   public query func getGodowns() : async [Godown] { godowns };
 
   public query func getGodownsByBusiness(businessId : Text) : async [Godown] {
-    Array.filter(godowns, func(g : Godown) : Bool { g.businessId == businessId or (g.businessId == "" and businessId == "b1") })
+    Array.filter(godowns, func(g : Godown) : Bool {
+      g.businessId == businessId or (g.businessId == "" and businessId == "b1")
+    })
   };
 
   public func addGodown(id : Text, name : Text, businessId : Text) : async () {
@@ -329,21 +394,55 @@ actor {
 
   public query func getCategories() : async [Category] { categories };
 
+  // Filter by the map; unmapped categories default to b1 (legacy compatibility).
+  // Check if this category has any map entry for the given businessId.
+  // Supports both isolated categories (business-prefixed IDs) and shared categories
+  // (same ID in map multiple times for different businesses).
+  func catBelongsToBusiness(catId : Text, businessId : Text) : Bool {
+    let directMatch = Array.find(categoryBusinessMap, func((cId, bId) : (Text, Text)) : Bool {
+      cId == catId and bId == businessId
+    });
+    switch (directMatch) {
+      case (?_) true;
+      case null {
+        // No entry for this (catId, businessId) pair.
+        // Check if catId has ANY mapping at all — if not, default to b1 (legacy).
+        let anyMapping = Array.find(categoryBusinessMap, func((cId, _) : (Text, Text)) : Bool { cId == catId });
+        switch (anyMapping) {
+          case null { businessId == "b1" }; // truly unmapped legacy category → b1
+          case (?_) false;                  // mapped to other business(es), not this one
+        }
+      };
+    }
+  };
+
   public query func getCategoriesByBusiness(businessId : Text) : async [Category] {
-    // Return categories mapped to this business, plus unmapped ones for "b1" (legacy)
     Array.filter(categories, func(c : Category) : Bool {
-      let mapping = Array.find(categoryBusinessMap, func((cId, _bId) : (Text, Text)) : Bool { cId == c.id });
-      switch (mapping) {
-        case (?(_cId, bId)) { bId == businessId };
-        case null { businessId == "b1" }; // legacy categories belong to b1
-      }
+      catBelongsToBusiness(c.id, businessId)
     })
   };
 
   public func addCategory(id : Text, name : Text, businessId : Text) : async () {
     seed();
-    categories := Array.append(categories, [{ id; name; subCategories = [] }]);
-    categoryBusinessMap := Array.append(categoryBusinessMap, [(id, businessId)]);
+    // Prevent duplicate category entries
+    let exists = Array.find(categories, func(c : Category) : Bool { c.id == id });
+    switch (exists) {
+      case (?_) {
+        // Category object already exists — ensure THIS business has a map entry for it.
+        // Use (catId, businessId) pair check so different businesses can both reference the same category.
+        let alreadyMapped = Array.find(categoryBusinessMap, func((cId, bId) : (Text, Text)) : Bool {
+          cId == id and bId == businessId
+        });
+        switch (alreadyMapped) {
+          case null { categoryBusinessMap := Array.append(categoryBusinessMap, [(id, businessId)]) };
+          case (?_) {};
+        };
+      };
+      case null {
+        categories := Array.append(categories, [{ id; name; subCategories = [] }]);
+        categoryBusinessMap := Array.append(categoryBusinessMap, [(id, businessId)]);
+      };
+    };
   };
 
   public func updateCategory(id : Text, name : Text) : async () {
@@ -352,8 +451,27 @@ actor {
     });
   };
 
-  public func deleteCategory(id : Text) : async () {
+  // Business-scoped delete: only removes THIS business's map entry.
+  // The category object is removed only when no other business still references it.
+  public func deleteCategory(id : Text, businessId : Text) : async () {
+    // Remove only the (id, businessId) pair from the map
+    categoryBusinessMap := Array.filter(categoryBusinessMap, func((cId, bId) : (Text, Text)) : Bool {
+      not (cId == id and bId == businessId)
+    });
+    // Only remove the category object if no other business has it in the map
+    let stillUsed = Array.find(categoryBusinessMap, func((cId, _) : (Text, Text)) : Bool { cId == id });
+    switch (stillUsed) {
+      case null {
+        categories := Array.filter(categories, func(c : Category) : Bool { c.id != id });
+      };
+      case (?_) {}; // Another business still references this category — keep the object
+    };
+  };
+
+  // Admin-level global delete (used in restore flow only)
+  public func deleteCategoryGlobal(id : Text) : async () {
     categories := Array.filter(categories, func(c : Category) : Bool { c.id != id });
+    categoryBusinessMap := Array.filter(categoryBusinessMap, func((cId,_) : (Text,Text)) : Bool { cId != id });
   };
 
   public func addSubCategory(categoryId : Text, sc : SubCategory) : async () {
@@ -476,17 +594,13 @@ actor {
 
   public func saveInward(entry : InwardSavedEntry) : async () {
     seed();
-    // Only append if not already saved (idempotent)
     let exists = Array.find(inwardSaved, func(e : InwardSavedEntry) : Bool { e.id == entry.id });
     switch (exists) {
-      case (?_) { /* already saved, skip */ };
-      case null {
-        inwardSaved    := Array.append(inwardSaved, [entry]);
-      };
+      case (?_) { /* already saved */ };
+      case null { inwardSaved := Array.append(inwardSaved, [entry]) };
     };
     transitEntries := Array.filter(transitEntries, func(e : TransitEntry) : Bool { e.biltyNumber != entry.biltyNumber });
     queueEntries   := Array.filter(queueEntries,   func(e : QueueEntry)   : Bool { e.biltyNumber != entry.biltyNumber });
-    // Note: TxRecords are managed by the frontend via addTxRecord to avoid duplicates.
   };
 
   public func updateInwardSaved(entry : InwardSavedEntry) : async () {
@@ -500,12 +614,13 @@ actor {
   };
 
   public query func getInventory(businessId : Text) : async [InventoryItem] {
-    Array.filter(inventory, func(i : InventoryItem) : Bool { i.businessId == businessId or (i.businessId == "" and businessId == "b1") })
+    Array.filter(inventory, func(i : InventoryItem) : Bool {
+      i.businessId == businessId or (i.businessId == "" and businessId == "b1")
+    })
   };
 
   public func addInventoryItem(item : InventoryItem) : async () {
     seed();
-    // Upsert: if item with same id exists, update it; otherwise append
     let exists = Array.find(inventory, func(i : InventoryItem) : Bool { i.id == item.id });
     switch (exists) {
       case (?_) {
@@ -513,9 +628,7 @@ actor {
           if (i.id == item.id) item else i
         });
       };
-      case null {
-        inventory := Array.append(inventory, [item]);
-      };
+      case null { inventory := Array.append(inventory, [item]) };
     };
   };
 
@@ -743,7 +856,6 @@ actor {
   public func deleteTxRecord(id : Text) : async () {
     txHistory := Array.filter(txHistory, func(t : TxRecord) : Bool { t.id != id });
   };
-
 
   public func saveAppSettings(json : Text) : async () {
     appSettings := json;

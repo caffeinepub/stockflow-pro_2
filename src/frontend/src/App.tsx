@@ -661,6 +661,7 @@ export default function App() {
   const biltyPrefixIdMapRef = useRef<Record<string, string>>({}); // prefix -> id
   const transportTrackerIdMapRef = useRef<Record<string, string>>({}); // transport key -> id
   const isInitialLoadDoneRef = useRef(false);
+  const activeBusinessIdRef = useRef("b1"); // always current, avoids stale closure
 
   // Load all data from backend on actor ready (config + transactional in one pass)
   useEffect(() => {
@@ -672,14 +673,12 @@ export default function App() {
           backendUsers,
           backendBusinesses,
           backendGodowns,
-          backendCats,
           backendPrefixes,
           backendTrackers,
         ] = await Promise.all([
           actor.getUsers(),
           actor.getBusinesses(),
           actor.getGodowns(),
-          actor.getCategories(),
           actor.getBiltyPrefixes(),
           actor.getTransportTrackers(),
         ]);
@@ -727,11 +726,11 @@ export default function App() {
             resolvedBusinessId,
           );
           categoryMapRef.current = {};
-          if ((bizCats as typeof backendCats).length > 0) {
+          if ((bizCats as BackendCategory[]).length > 0) {
             setCategories(
-              (bizCats as typeof backendCats).map(fromBackendCategory),
+              (bizCats as BackendCategory[]).map(fromBackendCategory),
             );
-            for (const c of bizCats as typeof backendCats) {
+            for (const c of bizCats as BackendCategory[]) {
               categoryMapRef.current[c.name] = {
                 id: c.id,
                 subCategories: c.subCategories,
@@ -741,19 +740,9 @@ export default function App() {
             setCategories([]);
           }
         } catch {
-          // On error only fall back to global cats for b1, empty for others
-          if (resolvedBusinessId === "b1" && backendCats.length > 0) {
-            setCategories(backendCats.map(fromBackendCategory));
-            for (const c of backendCats) {
-              categoryMapRef.current[c.name] = {
-                id: c.id,
-                subCategories: c.subCategories,
-              };
-            }
-          } else {
-            setCategories([]);
-            categoryMapRef.current = {};
-          }
+          // On error leave categories empty — no cross-business fallback
+          setCategories([]);
+          categoryMapRef.current = {};
         }
         if (backendPrefixes.length > 0) {
           setBiltyPrefixes(backendPrefixes.map((p) => p.prefix));
@@ -975,6 +964,11 @@ export default function App() {
     })();
   }, [activeBusinessId, actor]);
 
+  // Keep ref in sync with state so setters always use current business
+  useEffect(() => {
+    activeBusinessIdRef.current = activeBusinessId;
+  }, [activeBusinessId]);
+
   // Synced setters
   const setUsersWithBackend: React.Dispatch<React.SetStateAction<AppUser[]>> = (
     updater,
@@ -1072,8 +1066,14 @@ export default function App() {
     const deleted = prev.filter((name) => !next.includes(name));
     for (const name of added) {
       const id = `${name.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}`;
-      godownMapRef.current[name] = { id, businessId: activeBusinessId };
-      backendSave(actor.addGodown(id, name, activeBusinessId), "addGodown");
+      godownMapRef.current[name] = {
+        id,
+        businessId: activeBusinessIdRef.current,
+      };
+      backendSave(
+        actor.addGodown(id, name, activeBusinessIdRef.current),
+        "addGodown",
+      );
     }
     for (const name of deleted) {
       const mapping = godownMapRef.current[name];
@@ -1102,9 +1102,9 @@ export default function App() {
       return old && JSON.stringify(old) !== JSON.stringify(c);
     });
     for (const c of added) {
-      const id = c.name.toLowerCase().replace(/\s+/g, "-");
+      const id = `${activeBusinessIdRef.current}-${c.name.toLowerCase().replace(/\s+/g, "-")}`;
       backendSave(
-        (actor as any).addCategory(id, c.name, activeBusinessId),
+        (actor as any).addCategory(id, c.name, activeBusinessIdRef.current),
         "addCategory",
       );
       for (const f of c.fields) {
@@ -1120,7 +1120,10 @@ export default function App() {
     for (const c of deleted) {
       const mapping = categoryMapRef.current[c.name];
       const catId = mapping?.id || c.name.toLowerCase().replace(/\s+/g, "-");
-      backendSave(actor.deleteCategory(catId), "deleteCategory");
+      backendSave(
+        (actor as any).deleteCategory(catId, activeBusinessIdRef.current),
+        "deleteCategory",
+      );
     }
     for (const c of updated) {
       const mapping = categoryMapRef.current[c.name];
@@ -1673,7 +1676,9 @@ export default function App() {
         // 3. Clear existing categories and restore from backup
         const existingCats = await (actor as any).getCategories();
         await Promise.all(
-          existingCats.map((c: any) => (actor as any).deleteCategory(c.id)),
+          existingCats.map((c: any) =>
+            (actor as any).deleteCategoryGlobal(c.id),
+          ),
         );
         if (data.categories) {
           for (const cat of data.categories as Category[]) {

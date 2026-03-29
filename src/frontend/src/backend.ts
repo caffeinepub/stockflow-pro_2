@@ -299,7 +299,8 @@ export interface backendInterface {
     biltyExists(biltyNumber: string): Promise<boolean>;
     deleteBiltyPrefix(id: string): Promise<void>;
     deleteBusiness(id: string): Promise<void>;
-    deleteCategory(id: string): Promise<void>;
+    deleteCategory(id: string, businessId: string): Promise<void>;
+    deleteCategoryGlobal(id: string): Promise<void>;
     deleteGodown(id: string): Promise<void>;
     deleteInventoryItem(id: string): Promise<void>;
     deleteInwardSaved(id: string): Promise<void>;
@@ -598,19 +599,33 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async deleteCategory(arg0: string): Promise<void> {
+    async deleteCategory(arg0: string, arg1: string): Promise<void> {
         if (this.processError) {
             try {
-                const result = await this.actor.deleteCategory(arg0);
+                const result = await this.actor.deleteCategory(arg0, arg1);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.deleteCategory(arg0);
+            const result = await this.actor.deleteCategory(arg0, arg1);
             return result;
         }
+    }
+    async deleteCategoryGlobal(arg0: string): Promise<void> {
+        if (this.retryCount < this.maxRetries) {
+            try {
+                const result = await this.actor.deleteCategoryGlobal(arg0);
+                this.retryCount = 0;
+                return result;
+            } catch (error) {
+                this.retryCount++;
+                return this.deleteCategoryGlobal(arg0);
+            }
+        }
+        const result = await this.actor.deleteCategoryGlobal(arg0);
+        return result;
     }
     async deleteGodown(arg0: string): Promise<void> {
         if (this.processError) {
