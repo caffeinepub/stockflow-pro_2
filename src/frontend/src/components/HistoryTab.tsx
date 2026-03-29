@@ -582,7 +582,8 @@ function HistoryTab({
                 </p>
                 {(editingTx.baleItemsList || []).map((bi, idx) => (
                   <div
-                    key={`${bi.itemName}-${idx}`}
+                    // biome-ignore lint/suspicious/noArrayIndexKey: stable index key needed for input stability
+                    key={`bale-item-${idx}`}
                     className="border border-blue-100 rounded-2xl p-4 mb-3 bg-blue-50/40 space-y-3"
                   >
                     <div className="flex justify-between items-center">

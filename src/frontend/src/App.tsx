@@ -271,10 +271,13 @@ function fromBackendInwardSaved(e: BackendInwardSavedEntry): InwardSavedEntry {
   };
 }
 
-function toBackendInventory(item: InventoryItem): BackendInventoryItem {
+function toBackendInventory(
+  item: InventoryItem,
+  businessId = "",
+): BackendInventoryItem {
   return {
     id: item.sku,
-    businessId: item.businessId,
+    businessId: item.businessId || businessId,
     category: item.category,
     itemName: item.itemName,
     subCategory: JSON.stringify(item.attributes || {}),
@@ -560,7 +563,24 @@ export default function App() {
     const added = next.filter(
       (n: Transaction) => !prev.find((p: Transaction) => p.id === n.id),
     );
+    const deleted = prev.filter(
+      (p: Transaction) => !next.find((n: Transaction) => n.id === p.id),
+    );
     for (const t of added)
+      backendSave(
+        (actor as any).addTxRecord(toBackendTxRecord(t)),
+        "addTxRecord",
+      );
+    for (const t of deleted)
+      backendSave(
+        (actor as any).deleteTxRecord(String(t.id)),
+        "deleteTxRecord",
+      );
+    const updated = next.filter((n: Transaction) => {
+      const old = prev.find((p: Transaction) => p.id === n.id);
+      return old && JSON.stringify(old) !== JSON.stringify(n);
+    });
+    for (const t of updated)
       backendSave(
         (actor as any).addTxRecord(toBackendTxRecord(t)),
         "addTxRecord",
@@ -643,6 +663,7 @@ export default function App() {
   const businessMapRef = useRef<Record<string, string>>({}); // name -> id (businesses already have id)
   const biltyPrefixIdMapRef = useRef<Record<string, string>>({}); // prefix -> id
   const transportTrackerIdMapRef = useRef<Record<string, string>>({}); // transport key -> id
+  const isInitialLoadDoneRef = useRef(false);
 
   // Load all data from backend on actor ready (config + transactional in one pass)
   useEffect(() => {
@@ -686,6 +707,23 @@ export default function App() {
               businessId: g.businessId,
             };
           }
+        }
+        // Reload godowns filtered by resolved business
+        try {
+          const bizGodowns = await (actor as any).getGodownsByBusiness(
+            resolvedBusinessId,
+          );
+          if (bizGodowns && (bizGodowns as any[]).length > 0) {
+            setGodowns((bizGodowns as any[]).map((g: any) => g.name));
+            for (const g of bizGodowns as any[]) {
+              godownMapRef.current[g.name] = {
+                id: g.id,
+                businessId: g.businessId,
+              };
+            }
+          }
+        } catch {
+          /* fallback to getGodowns() result */
         }
         // Load categories per business (fall back to global if business-specific returns empty)
         try {
@@ -810,6 +848,7 @@ export default function App() {
         } catch (_e) {
           // settings load failure is non-critical
         }
+        isInitialLoadDoneRef.current = true;
         setIsDataLoading(false);
       } catch (e) {
         console.error("Failed to load data from backend:", e);
@@ -822,14 +861,41 @@ export default function App() {
     })();
   }, [actor]);
 
-  // Reload categories and business-specific data when active business changes (after initial load)
+  // Reload ALL business-specific data when active business changes (after initial load)
   useEffect(() => {
-    if (!actor || !activeBusinessId) return;
+    if (!actor || !activeBusinessId || !isInitialLoadDoneRef.current) return;
+    setIsDataLoading(true);
     (async () => {
       try {
-        const bizCats = await (actor as any).getCategoriesByBusiness(
-          activeBusinessId,
-        );
+        const [
+          bizGodowns,
+          bizCats,
+          backendTransit,
+          backendQueue,
+          backendInwardSaved,
+          backendInventory,
+          backendDeliveries,
+          backendTxHistory,
+          backendTransfers,
+        ] = await Promise.all([
+          (actor as any).getGodownsByBusiness(activeBusinessId),
+          (actor as any).getCategoriesByBusiness(activeBusinessId),
+          (actor as any).getTransitEntries(activeBusinessId),
+          (actor as any).getQueueEntries(activeBusinessId),
+          (actor as any).getInwardSaved(activeBusinessId),
+          (actor as any).getInventory(activeBusinessId),
+          (actor as any).getDeliveries(activeBusinessId),
+          (actor as any).getTxHistory(activeBusinessId),
+          (actor as any).getTransfers(activeBusinessId),
+        ]);
+
+        // Godowns
+        setGodowns((bizGodowns as any[]).map((g: any) => g.name));
+        for (const g of bizGodowns as any[]) {
+          godownMapRef.current[g.name] = { id: g.id, businessId: g.businessId };
+        }
+
+        // Categories
         if ((bizCats as unknown[]).length > 0) {
           setCategories(
             (bizCats as unknown[]).map(
@@ -845,12 +911,64 @@ export default function App() {
           }
           categoryMapRef.current = newMap;
         } else {
-          // No categories for this business yet — show empty
           setCategories([]);
           categoryMapRef.current = {};
         }
-      } catch {
-        // non-critical
+
+        // Transit
+        const transitGoodsData = (backendTransit as BackendTransitEntry[]).map(
+          fromBackendTransit,
+        );
+        setTransitGoods(transitGoodsData);
+        transitGoodsRef.current = transitGoodsData;
+
+        // Queue
+        const pendingParcelsData = (backendQueue as BackendQueueEntry[])
+          .filter((e) => !e.delivered)
+          .map(fromBackendQueue);
+        setPendingParcels(pendingParcelsData);
+        pendingParcelsRef.current = pendingParcelsData;
+
+        // InwardSaved
+        const inwardSavedData = (
+          backendInwardSaved as BackendInwardSavedEntry[]
+        ).map(fromBackendInwardSaved);
+        setInwardSaved(inwardSavedData);
+        inwardSavedRef.current = inwardSavedData;
+
+        // Inventory
+        const invMap: Record<string, InventoryItem> = {};
+        for (const e of backendInventory as BackendInventoryItem[]) {
+          const [k, v] = fromBackendInventory(e);
+          invMap[k] = v;
+        }
+        setInventory(invMap);
+        inventoryRef.current = invMap;
+
+        // Deliveries
+        const deliveries = (backendDeliveries as DeliveryEntry[]).map(
+          fromBackendDelivery,
+        );
+        setDeliveryRecords(deliveries);
+        setDeliveredBilties(
+          deliveries
+            .filter((d) => d.type === "QUEUE" && d.biltyNo)
+            .map((d) => d.biltyNo as string),
+        );
+
+        // Transactions
+        const transactionsData = (backendTxHistory as TxRecord[]).map(
+          fromBackendTxRecord,
+        );
+        setTransactions(transactionsData);
+        transactionsRef.current = transactionsData;
+
+        // Transfers
+        setTransfers(backendTransfers as TransferEntry[]);
+      } catch (e) {
+        console.error("Business switch data reload failed:", e);
+      } finally {
+        setIsDataLoading(false);
       }
     })();
   }, [activeBusinessId, actor]);
@@ -1323,14 +1441,18 @@ export default function App() {
     );
     for (const k of added)
       backendSave(
-        (actor as any).addInventoryItem(toBackendInventory(next[k])),
+        (actor as any).addInventoryItem(
+          toBackendInventory(next[k], activeBusinessId),
+        ),
         "addInventoryItem",
       );
     for (const k of deleted)
       backendSave((actor as any).deleteInventoryItem(k), "deleteInventoryItem");
     for (const k of updated)
       backendSave(
-        (actor as any).updateInventoryItem(toBackendInventory(next[k])),
+        (actor as any).updateInventoryItem(
+          toBackendInventory(next[k], activeBusinessId),
+        ),
         "updateInventoryItem",
       );
   };
@@ -1563,7 +1685,9 @@ export default function App() {
           await Promise.all(
             Object.values(data.inventory as Record<string, InventoryItem>).map(
               (item) =>
-                (actor as any).addInventoryItem(toBackendInventory(item)),
+                (actor as any).addInventoryItem(
+                  toBackendInventory(item, activeBusinessId),
+                ),
             ),
           );
         }
@@ -2198,6 +2322,9 @@ export default function App() {
             transactions={transactions}
             activeBusinessId={activeBusinessId}
             showNotification={showNotification}
+            godowns={godowns}
+            inventory={inventory}
+            setInventory={setInventoryWithBackend as any}
           />
         )}
         {activeTab === "godownStock" && currentUser.role !== "supplier" && (

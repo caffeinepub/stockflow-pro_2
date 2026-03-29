@@ -1,4 +1,4 @@
-import { CheckCircle, Truck, X } from "lucide-react";
+import { CheckCircle, Pencil, Truck, X } from "lucide-react";
 import type React from "react";
 import { useState } from "react";
 import type {
@@ -80,6 +80,24 @@ function DeliveryTab({
   const [filterGodown, setFilterGodown] = useState("all");
   const [isSaving, setIsSaving] = useState(false);
 
+  // Edit delivery
+  const [editingRecord, setEditingRecord] = useState<DeliveryRecord | null>(
+    null,
+  );
+  const [editCustomerName, setEditCustomerName] = useState("");
+  const [editCustomerPhone, setEditCustomerPhone] = useState("");
+  const [editDeliveredAt, setEditDeliveredAt] = useState("");
+  const [editGodown, setEditGodown] = useState("");
+  const [editItems, setEditItems] = useState<
+    Array<{
+      itemName: string;
+      category: string;
+      subCategory?: string;
+      qty: number;
+    }>
+  >([]);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+
   const queueEntries = pendingParcels.filter(
     (p) => !p.businessId || p.businessId === activeBusinessId,
   );
@@ -121,7 +139,6 @@ function DeliveryTab({
       if (validItems.length === 0)
         return showNotification("Add at least one item with qty", "error");
 
-      // Zero-stock check
       for (const item of validItems) {
         const existingItem = Object.values(inventory).find(
           (inv) =>
@@ -164,14 +181,11 @@ function DeliveryTab({
       };
 
       if (sourceType === "QUEUE" && selectedQueue) {
-        // Remove from queue
         setPendingParcels((prev) =>
           prev.filter((p) => p.id !== selectedQueue.id),
         );
-        // Add to godown then deduct (net effect: just log)
       }
 
-      // Log transaction
       setTransactions((prev) => [
         {
           id: Date.now(),
@@ -232,7 +246,6 @@ function DeliveryTab({
         return;
       }
       setDeliveryRecords((prev) => [record, ...prev]);
-      // Mark queue bilty as delivered so Inward tab can check
       if (
         sourceType === "QUEUE" &&
         selectedQueue?.biltyNo &&
@@ -255,6 +268,60 @@ function DeliveryTab({
       showNotification("Delivery recorded successfully!", "success");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const openEditDelivery = (r: DeliveryRecord) => {
+    setEditingRecord(r);
+    setEditCustomerName(r.customerName);
+    setEditCustomerPhone(r.customerPhone || "");
+    setEditDeliveredAt(r.deliveredAt.split("T")[0]);
+    setEditGodown(r.sourceGodown);
+    setEditItems(r.items.map((i) => ({ ...i })));
+  };
+
+  const handleSaveEditDelivery = async () => {
+    if (!editingRecord || isSavingEdit) return;
+    setIsSavingEdit(true);
+    try {
+      const updatedRecord: DeliveryRecord = {
+        ...editingRecord,
+        customerName: editCustomerName,
+        customerPhone: editCustomerPhone,
+        deliveredAt: new Date(editDeliveredAt).toISOString(),
+        sourceGodown: editGodown,
+        items: editItems,
+      };
+      const deliveryEntry = {
+        id: editingRecord.id,
+        businessId: editingRecord.businessId,
+        createdAt: BigInt(new Date(updatedRecord.deliveredAt).getTime()),
+        deliveredBy: editingRecord.deliveredBy,
+        customerName: updatedRecord.customerName,
+        customerPhone: updatedRecord.customerPhone || "",
+        deliveryType: editingRecord.type === "QUEUE" ? "QUEUE" : "From Godown",
+        biltyNumber: editingRecord.biltyNo || "",
+        items: updatedRecord.items.map((i) => ({
+          itemName: i.itemName,
+          category: i.category || "",
+          subCategory: i.subCategory || "",
+          qty: BigInt(i.qty),
+          godownId: updatedRecord.sourceGodown,
+        })),
+      };
+      if (actor) {
+        await actor.addDelivery(deliveryEntry);
+      }
+      setDeliveryRecords((prev) =>
+        prev.map((r) => (r.id === editingRecord.id ? updatedRecord : r)),
+      );
+      setEditingRecord(null);
+      showNotification("Delivery updated successfully!", "success");
+    } catch (e) {
+      console.error(e);
+      showNotification("Update failed: backend error", "error");
+    } finally {
+      setIsSavingEdit(false);
     }
   };
 
@@ -282,7 +349,11 @@ function DeliveryTab({
             type="button"
             data-ocid="delivery.tab"
             onClick={() => setViewMode("new")}
-            className={`px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-colors ${viewMode === "new" ? "bg-blue-600 text-white shadow-lg" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+            className={`px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-colors ${
+              viewMode === "new"
+                ? "bg-blue-600 text-white shadow-lg"
+                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+            }`}
           >
             New Delivery
           </button>
@@ -290,7 +361,11 @@ function DeliveryTab({
             type="button"
             data-ocid="delivery.timeline.tab"
             onClick={() => setViewMode("timeline")}
-            className={`px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-colors ${viewMode === "timeline" ? "bg-blue-600 text-white shadow-lg" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+            className={`px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-colors ${
+              viewMode === "timeline"
+                ? "bg-blue-600 text-white shadow-lg"
+                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+            }`}
           >
             Timeline
           </button>
@@ -317,7 +392,11 @@ function DeliveryTab({
                   },
                 ]);
               }}
-              className={`flex-1 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest border-2 transition-colors ${sourceType === "GODOWN" ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-600 border-gray-200 hover:border-blue-300"}`}
+              className={`flex-1 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest border-2 transition-colors ${
+                sourceType === "GODOWN"
+                  ? "bg-blue-600 text-white border-blue-600"
+                  : "bg-white text-gray-600 border-gray-200 hover:border-blue-300"
+              }`}
             >
               📦 From Godown
             </button>
@@ -336,7 +415,11 @@ function DeliveryTab({
                   },
                 ]);
               }}
-              className={`flex-1 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest border-2 transition-colors ${sourceType === "QUEUE" ? "bg-amber-500 text-white border-amber-500" : "bg-white text-gray-600 border-gray-200 hover:border-amber-300"}`}
+              className={`flex-1 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest border-2 transition-colors ${
+                sourceType === "QUEUE"
+                  ? "bg-amber-500 text-white border-amber-500"
+                  : "bg-white text-gray-600 border-gray-200 hover:border-amber-300"
+              }`}
             >
               🚚 From Queue
             </button>
@@ -351,7 +434,6 @@ function DeliveryTab({
               <select
                 value={selectedGodown}
                 onChange={(e) => setSelectedGodown(e.target.value)}
-                data-ocid="delivery.select"
                 className="w-full border rounded-xl p-3 font-bold text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50"
               >
                 {godowns.map((g) => (
@@ -362,41 +444,54 @@ function DeliveryTab({
               </select>
             </div>
 
-            {/* Queue Bilty Picker */}
+            {/* Queue selector */}
             {sourceType === "QUEUE" && (
               <div>
-                <p className="text-[10px] font-black uppercase text-gray-400 mb-1">
+                <p className="text-[10px] font-black uppercase text-gray-400 mb-2">
                   Select Bilty from Queue
                 </p>
-                <select
-                  value={selectedBiltyId ?? ""}
-                  onChange={(e) => handleQueueSelect(Number(e.target.value))}
-                  data-ocid="delivery.bilty.select"
-                  className="w-full border rounded-xl p-3 font-bold text-sm outline-none focus:ring-2 focus:ring-amber-500 bg-gray-50"
-                >
-                  <option value="">— Select Bilty —</option>
-                  {queueEntries.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.biltyNo} {p.itemName ? `(${p.itemName})` : ""}
-                    </option>
-                  ))}
-                </select>
+                {queueEntries.length === 0 ? (
+                  <p className="text-xs text-gray-400 font-bold">
+                    No pending bilties in queue
+                  </p>
+                ) : (
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {queueEntries.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => handleQueueSelect(p.id)}
+                        className={`w-full text-left px-4 py-3 rounded-xl border-2 transition-colors font-bold text-xs ${
+                          selectedBiltyId === p.id
+                            ? "border-amber-500 bg-amber-50"
+                            : "border-gray-200 hover:border-amber-300"
+                        }`}
+                      >
+                        <span className="font-black">{p.biltyNo}</span>
+                        {p.itemName && (
+                          <span className="text-gray-500 ml-2">
+                            · {p.itemName}
+                          </span>
+                        )}
+                        {p.packages && (
+                          <span className="text-amber-600 ml-2">
+                            · {p.packages} pkg
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
             {/* Items */}
             <div>
               <p className="text-[10px] font-black uppercase text-gray-400 mb-2">
-                Items to Deliver
+                Items
               </p>
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {deliveryItems.map((item, idx) => {
-                  const _inventoryItems = Object.values(inventory).filter(
-                    (inv) =>
-                      (!inv.businessId ||
-                        inv.businessId === activeBusinessId) &&
-                      (!item.category || inv.category === item.category),
-                  );
                   const matchedInvForQty = item.subCategory
                     ? Object.values(inventory).find(
                         (inv) =>
@@ -447,7 +542,6 @@ function DeliveryTab({
                         ))}
                       </select>
                       <div className="col-span-5 relative">
-                        {/* Rich dropdown: show items with qty>0 in selected godown */}
                         {(() => {
                           const richItems = Object.values(inventory).filter(
                             (inv) =>
@@ -510,7 +604,6 @@ function DeliveryTab({
                             In {selectedGodown}: {godownQty}
                           </span>
                         )}
-                        {/* Sub-category dropdown */}
                         {item.itemName &&
                           (() => {
                             const matchingItems = Object.values(
@@ -557,18 +650,9 @@ function DeliveryTab({
                                     .join(", ");
                                   const subGodownQty =
                                     inv.godowns[selectedGodown] || 0;
-                                  const subShopQty = inv.shop || 0;
                                   return (
-                                    <option
-                                      key={inv.sku}
-                                      value={subLabel}
-                                      disabled={subGodownQty <= 0}
-                                    >
-                                      {subLabel || "Default"} — Godown:{" "}
-                                      {subGodownQty} | Shop: {subShopQty}
-                                      {subGodownQty <= 0
-                                        ? " (Out of stock)"
-                                        : ""}
+                                    <option key={inv.sku} value={subLabel}>
+                                      {subLabel} ({subGodownQty} in godown)
                                     </option>
                                   );
                                 })}
@@ -579,7 +663,6 @@ function DeliveryTab({
                       <input
                         type="number"
                         value={item.qty}
-                        min={1}
                         onChange={(e) =>
                           setDeliveryItems((prev) =>
                             prev.map((x, i) =>
@@ -588,7 +671,7 @@ function DeliveryTab({
                           )
                         }
                         placeholder="Qty"
-                        className="col-span-2 border rounded-lg p-2 text-xs font-bold outline-none"
+                        className="col-span-2 border rounded-lg p-2 text-xs font-bold outline-none text-center"
                       />
                       <button
                         type="button"
@@ -729,7 +812,11 @@ function DeliveryTab({
                   <div className="flex justify-between items-start mb-3">
                     <div className="flex items-center gap-2">
                       <span
-                        className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${r.type === "GODOWN" ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700"}`}
+                        className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${
+                          r.type === "GODOWN"
+                            ? "bg-blue-100 text-blue-700"
+                            : "bg-amber-100 text-amber-700"
+                        }`}
                       >
                         {r.type === "GODOWN" ? "Godown" : "Queue"}
                       </span>
@@ -742,13 +829,25 @@ function DeliveryTab({
                         )}
                       </span>
                     </div>
-                    <span className="text-[10px] font-bold text-gray-400">
-                      {new Date(r.deliveredAt).toLocaleDateString("en-IN")}{" "}
-                      {new Date(r.deliveredAt).toLocaleTimeString("en-IN", {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-[10px] font-bold text-gray-400">
+                        {new Date(r.deliveredAt).toLocaleDateString("en-IN")}{" "}
+                        {new Date(r.deliveredAt).toLocaleTimeString("en-IN", {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                      {currentUser.role === "admin" && (
+                        <button
+                          type="button"
+                          data-ocid={`delivery.item.${idx + 1}.edit_button`}
+                          onClick={() => openEditDelivery(r)}
+                          className="p-2 bg-purple-50 hover:bg-purple-100 rounded-xl transition-colors text-purple-500"
+                        >
+                          <Pencil size={16} />
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-[10px] font-bold text-gray-500 mb-3">
                     <span>📦 {r.sourceGodown}</span>
@@ -774,6 +873,141 @@ function DeliveryTab({
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Edit Delivery Modal */}
+      {editingRecord && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2rem] p-6 w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="font-black text-lg text-gray-800 uppercase tracking-tight">
+                Edit Delivery
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditingRecord(null)}
+                data-ocid="delivery.edit.close_button"
+                className="p-2 bg-gray-100 hover:bg-red-50 text-gray-400 hover:text-red-500 rounded-xl transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <p className="text-[10px] font-black uppercase text-gray-400 mb-1">
+                  Customer Name *
+                </p>
+                <input
+                  type="text"
+                  value={editCustomerName}
+                  onChange={(e) => setEditCustomerName(e.target.value)}
+                  data-ocid="delivery.edit.input"
+                  className="w-full border rounded-xl p-3 font-bold text-sm outline-none focus:ring-2 focus:ring-blue-400 bg-gray-50"
+                />
+              </div>
+              <div>
+                <p className="text-[10px] font-black uppercase text-gray-400 mb-1">
+                  Customer Phone
+                </p>
+                <input
+                  type="tel"
+                  value={editCustomerPhone}
+                  onChange={(e) => setEditCustomerPhone(e.target.value)}
+                  className="w-full border rounded-xl p-3 font-bold text-sm outline-none focus:ring-2 focus:ring-blue-400 bg-gray-50"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-[10px] font-black uppercase text-gray-400 mb-1">
+                    Delivered At
+                  </p>
+                  <input
+                    type="date"
+                    value={editDeliveredAt}
+                    onChange={(e) => setEditDeliveredAt(e.target.value)}
+                    className="w-full border rounded-xl p-3 font-bold text-sm outline-none focus:ring-2 focus:ring-blue-400 bg-gray-50"
+                  />
+                </div>
+                <div>
+                  <p className="text-[10px] font-black uppercase text-gray-400 mb-1">
+                    Source Godown
+                  </p>
+                  <select
+                    value={editGodown}
+                    onChange={(e) => setEditGodown(e.target.value)}
+                    data-ocid="delivery.edit.select"
+                    className="w-full border rounded-xl p-3 font-bold text-sm outline-none focus:ring-2 focus:ring-blue-400 bg-gray-50"
+                  >
+                    {godowns.map((g) => (
+                      <option key={g} value={g}>
+                        {g}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <p className="text-[10px] font-black uppercase text-gray-400 mb-2">
+                  Items
+                </p>
+                <div className="space-y-2">
+                  {editItems.map((item, idx) => (
+                    <div
+                      key={`edit-item-${item.itemName}-${idx}`}
+                      className="flex items-center gap-3 bg-gray-50 p-3 rounded-xl"
+                    >
+                      <div className="flex-1">
+                        <p className="font-black text-xs text-gray-800">
+                          {item.category && `${item.category} — `}
+                          {item.itemName}
+                        </p>
+                        {item.subCategory && (
+                          <p className="text-[10px] text-gray-400 font-bold">
+                            {item.subCategory}
+                          </p>
+                        )}
+                      </div>
+                      <input
+                        type="number"
+                        value={item.qty}
+                        onChange={(e) =>
+                          setEditItems((prev) =>
+                            prev.map((x, i) =>
+                              i === idx
+                                ? { ...x, qty: Number(e.target.value) }
+                                : x,
+                            ),
+                          )
+                        }
+                        className="w-20 border rounded-lg p-2 text-xs font-black text-center outline-none focus:ring-2 focus:ring-blue-400"
+                        min="1"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button
+                type="button"
+                onClick={() => setEditingRecord(null)}
+                data-ocid="delivery.edit.cancel_button"
+                className="flex-1 py-3 border-2 border-gray-200 rounded-xl font-black text-[10px] uppercase tracking-widest text-gray-500 hover:border-gray-300 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEditDelivery}
+                disabled={isSavingEdit}
+                data-ocid="delivery.edit.save_button"
+                className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-blue-700 transition-colors disabled:opacity-50"
+              >
+                {isSavingEdit ? "Saving..." : "Save Changes"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

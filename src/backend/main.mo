@@ -309,6 +309,10 @@ actor {
 
   public query func getGodowns() : async [Godown] { godowns };
 
+  public query func getGodownsByBusiness(businessId : Text) : async [Godown] {
+    Array.filter(godowns, func(g : Godown) : Bool { g.businessId == businessId or (g.businessId == "" and businessId == "b1") })
+  };
+
   public func addGodown(id : Text, name : Text, businessId : Text) : async () {
     seed(); godowns := Array.append(godowns, [{ id; name; businessId }]);
   };
