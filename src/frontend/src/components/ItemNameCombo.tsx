@@ -23,6 +23,10 @@ function ItemNameCombo({
     setInputVal(value);
   }, [value]);
 
+  useEffect(() => {
+    if (category) setOpen(true);
+  }, [category]);
+
   // Build rich suggestion list with subcategory+price per inventory item
   const _inventoryItems = Object.values(inventory).filter(
     (i) =>
@@ -31,8 +35,13 @@ function ItemNameCombo({
       (!inputVal || i.itemName.toLowerCase().includes(inputVal.toLowerCase())),
   );
 
-  // Deduplicate by sku for display
-  const suggestions = _inventoryItems;
+  // Deduplicate by itemName so same item doesn't appear multiple times
+  const _seen = new Set<string>();
+  const suggestions = _inventoryItems.filter((inv) => {
+    if (_seen.has(inv.itemName)) return false;
+    _seen.add(inv.itemName);
+    return true;
+  });
 
   return (
     <div className="relative">

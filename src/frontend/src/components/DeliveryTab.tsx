@@ -386,6 +386,21 @@ function DeliveryTab({
             Number(item.qty),
             selectedGodown,
           );
+          // Deduct stock since item was directly delivered to customer
+          _updateStock(
+            sku,
+            {
+              category: item.category,
+              itemName: item.itemName,
+              attributes: item.attributes || {},
+              businessId: activeBusinessId,
+              saleRate: 0,
+              purchaseRate: 0,
+            },
+            0,
+            -Number(item.qty),
+            selectedGodown,
+          );
         }
 
         // Persist the auto-inward transaction to backend
