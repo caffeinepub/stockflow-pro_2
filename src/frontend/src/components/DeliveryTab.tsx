@@ -10,6 +10,27 @@ import type {
   PendingParcel,
   Transaction,
 } from "../types";
+import { ItemNameCombo } from "./ItemNameCombo";
+
+type DeliveryItem = {
+  id: number;
+  category: string;
+  itemName: string;
+  subCategory: string;
+  qty: string;
+  packages: string;
+  attributes: Record<string, string>;
+};
+
+const emptyItem = (): DeliveryItem => ({
+  id: Date.now(),
+  category: "",
+  itemName: "",
+  subCategory: "",
+  qty: "",
+  packages: "1",
+  attributes: {},
+});
 
 function DeliveryTab({
   inventory,
@@ -26,6 +47,7 @@ function DeliveryTab({
   setTransactions,
   setInwardSaved,
   updateStock: _updateStock,
+  generateSku,
   showNotification,
   onDeliveredBilty,
   actor,
@@ -59,6 +81,13 @@ function DeliveryTab({
   actor?: any;
   onInventoryRefresh?: () => Promise<void>;
   requiredFields?: Record<string, Record<string, boolean>>;
+  generateSku: (
+    category: string,
+    itemName: string,
+    attributes: Record<string, string>,
+    saleRate: string,
+    businessId: string,
+  ) => string;
 }) {
   const [viewMode, setViewMode] = useState<"new" | "timeline">("new");
   const [sourceType, setSourceType] = useState<"GODOWN" | "QUEUE">("GODOWN");
@@ -66,15 +95,9 @@ function DeliveryTab({
   const [selectedBiltyId, setSelectedBiltyId] = useState<number | null>(null);
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
-  const [deliveryItems, setDeliveryItems] = useState<
-    Array<{
-      id: number;
-      category: string;
-      itemName: string;
-      subCategory: string;
-      qty: string;
-    }>
-  >([{ id: Date.now(), category: "", itemName: "", subCategory: "", qty: "" }]);
+  const [deliveryItems, setDeliveryItems] = useState<DeliveryItem[]>([
+    emptyItem(),
+  ]);
 
   // Timeline filters
   const [filterCustomer, setFilterCustomer] = useState("");
@@ -110,6 +133,26 @@ function DeliveryTab({
       ? queueEntries.find((p) => p.id === selectedBiltyId)
       : null;
 
+  const updateItem = (
+    idx: number,
+    field: keyof DeliveryItem,
+    value: string,
+  ) => {
+    setDeliveryItems((prev) =>
+      prev.map((x, i) => (i === idx ? { ...x, [field]: value } : x)),
+    );
+  };
+
+  const updateItemAttr = (idx: number, attrKey: string, attrValue: string) => {
+    setDeliveryItems((prev) =>
+      prev.map((x, i) =>
+        i === idx
+          ? { ...x, attributes: { ...x.attributes, [attrKey]: attrValue } }
+          : x,
+      ),
+    );
+  };
+
   const handleQueueSelect = (id: number) => {
     setSelectedBiltyId(id);
     const entry = queueEntries.find((p) => p.id === id);
@@ -121,6 +164,8 @@ function DeliveryTab({
           itemName: entry.itemName || "",
           subCategory: "",
           qty: entry.packages || "1",
+          packages: entry.packages || "1",
+          attributes: {},
         },
       ]);
     }
@@ -142,25 +187,28 @@ function DeliveryTab({
       if (validItems.length === 0)
         return showNotification("Add at least one item with qty", "error");
 
-      for (const item of validItems) {
-        const existingItem = Object.values(inventory).find(
-          (inv) =>
-            (!inv.businessId || inv.businessId === activeBusinessId) &&
-            inv.itemName.toLowerCase() === item.itemName.toLowerCase() &&
-            (!item.category || inv.category === item.category),
-        );
-        const godownQty = existingItem?.godowns[selectedGodown] || 0;
-        if (godownQty <= 0) {
-          return showNotification(
-            `No stock available for "${item.itemName}" in ${selectedGodown}`,
-            "error",
+      // Only validate stock for GODOWN deliveries, not QUEUE
+      if (sourceType === "GODOWN") {
+        for (const item of validItems) {
+          const existingItem = Object.values(inventory).find(
+            (inv) =>
+              (!inv.businessId || inv.businessId === activeBusinessId) &&
+              inv.itemName.toLowerCase() === item.itemName.toLowerCase() &&
+              (!item.category || inv.category === item.category),
           );
-        }
-        if (godownQty < Number(item.qty)) {
-          return showNotification(
-            `Only ${godownQty} units of "${item.itemName}" available in ${selectedGodown}`,
-            "error",
-          );
+          const godownQty = existingItem?.godowns[selectedGodown] || 0;
+          if (godownQty <= 0) {
+            return showNotification(
+              `No stock available for "${item.itemName}" in ${selectedGodown}`,
+              "error",
+            );
+          }
+          if (godownQty < Number(item.qty)) {
+            return showNotification(
+              `Only ${godownQty} units of "${item.itemName}" available in ${selectedGodown}`,
+              "error",
+            );
+          }
         }
       }
 
@@ -204,7 +252,7 @@ function DeliveryTab({
           baleItemsList: validItems.map((item) => ({
             itemName: item.itemName,
             category: item.category,
-            attributes: {},
+            attributes: item.attributes || {},
             qty: Number(item.qty),
             shopQty: 0,
             godownQuants: { [selectedGodown]: Number(item.qty) },
@@ -256,12 +304,13 @@ function DeliveryTab({
         const baleItems = validItems.map((item) => ({
           itemName: item.itemName,
           category: item.category,
-          attributes: {},
+          attributes: item.attributes || {},
           qty: Number(item.qty),
           shopQty: 0,
           godownQuants: { [selectedGodown]: Number(item.qty) },
           saleRate: 0,
           purchaseRate: 0,
+          packages: item.packages || "1",
         }));
 
         setTransactions((prev) => [
@@ -288,7 +337,9 @@ function DeliveryTab({
           id: Date.now() + 2,
           biltyNumber: selectedQueue.biltyNo,
           baseNumber: selectedQueue.biltyNo,
-          packages: "1",
+          packages: validItems
+            .reduce((s, i) => s + Number(i.packages || 1), 0)
+            .toString(),
           items: validItems.map((item) => ({
             category: item.category,
             itemName: item.itemName,
@@ -298,7 +349,7 @@ function DeliveryTab({
             shopQty: 0,
             saleRate: 0,
             purchaseRate: 0,
-            attributes: {},
+            attributes: item.attributes || {},
           })),
           savedBy: currentUser.username,
           savedAt: now,
@@ -306,8 +357,72 @@ function DeliveryTab({
           supplier: "",
           businessId: activeBusinessId,
           linkedDeliveryId: record.id,
+          remark: "Directly delivered to customer",
+          notes: "Queue Delivery | Directly delivered to customer",
+          isQueueDelivery: true,
         };
         setInwardSaved((prev) => [inwardSavedEntry, ...prev]);
+
+        // Add items to inventory so dashboard timeline and stock are updated
+        for (const item of validItems) {
+          const sku = generateSku(
+            item.category,
+            item.itemName,
+            item.attributes || {},
+            "0",
+            activeBusinessId,
+          );
+          _updateStock(
+            sku,
+            {
+              category: item.category,
+              itemName: item.itemName,
+              attributes: item.attributes || {},
+              businessId: activeBusinessId,
+              saleRate: 0,
+              purchaseRate: 0,
+            },
+            0,
+            Number(item.qty),
+            selectedGodown,
+          );
+        }
+
+        // Persist the auto-inward transaction to backend
+        if (actor) {
+          const inwardTx = {
+            id: Date.now() + 1,
+            type: "INWARD",
+            biltyNo: selectedQueue.biltyNo,
+            businessId: activeBusinessId,
+            date: now.split("T")[0],
+            user: currentUser.username,
+            fromLocation: "Queue",
+            toLocation: selectedGodown,
+            notes: "Auto-inward from queue delivery",
+            itemsCount: totalQty,
+            baleItemsList: baleItems,
+            createdAt: BigInt(Date.now() + 1),
+          };
+          try {
+            await (actor as any).addTxRecord({
+              id: BigInt(inwardTx.id),
+              txType: inwardTx.type,
+              biltyNo: inwardTx.biltyNo,
+              businessId: inwardTx.businessId,
+              date: inwardTx.date,
+              user: inwardTx.user,
+              fromLocation: inwardTx.fromLocation,
+              toLocation: inwardTx.toLocation,
+              notes: inwardTx.notes,
+              itemsCount: BigInt(inwardTx.itemsCount),
+              createdAt: inwardTx.createdAt,
+              baleItemsList: [],
+            });
+          } catch (e) {
+            console.error("Failed to persist auto-inward tx:", e);
+          }
+        }
       }
 
       if (
@@ -319,15 +434,7 @@ function DeliveryTab({
       }
       setCustomerName("");
       setCustomerPhone("");
-      setDeliveryItems([
-        {
-          id: Date.now(),
-          category: "",
-          itemName: "",
-          subCategory: "",
-          qty: "",
-        },
-      ]);
+      setDeliveryItems([emptyItem()]);
       setSelectedBiltyId(null);
       showNotification("Delivery recorded successfully!", "success");
     } finally {
@@ -498,15 +605,7 @@ function DeliveryTab({
               onClick={() => {
                 setSourceType("GODOWN");
                 setSelectedBiltyId(null);
-                setDeliveryItems([
-                  {
-                    id: Date.now(),
-                    category: "",
-                    itemName: "",
-                    subCategory: "",
-                    qty: "",
-                  },
-                ]);
+                setDeliveryItems([emptyItem()]);
               }}
               className={`flex-1 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest border-2 transition-colors ${
                 sourceType === "GODOWN"
@@ -521,15 +620,7 @@ function DeliveryTab({
               data-ocid="delivery.queue.toggle"
               onClick={() => {
                 setSourceType("QUEUE");
-                setDeliveryItems([
-                  {
-                    id: Date.now(),
-                    category: "",
-                    itemName: "",
-                    subCategory: "",
-                    qty: "",
-                  },
-                ]);
+                setDeliveryItems([emptyItem()]);
               }}
               className={`flex-1 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest border-2 transition-colors ${
                 sourceType === "QUEUE"
@@ -606,220 +697,403 @@ function DeliveryTab({
               <p className="text-[10px] font-black uppercase text-gray-400 mb-2">
                 Items
               </p>
-              <div className="space-y-2">
-                {deliveryItems.map((item, idx) => {
-                  const matchedInvForQty = item.subCategory
-                    ? Object.values(inventory).find(
-                        (inv) =>
-                          (!inv.businessId ||
-                            inv.businessId === activeBusinessId) &&
-                          inv.itemName.toLowerCase() ===
-                            item.itemName.toLowerCase() &&
-                          Object.entries(inv.attributes || {})
-                            .map(([k, v]) => `${k}: ${v}`)
-                            .join(", ") === item.subCategory,
-                      )
-                    : Object.values(inventory).find(
-                        (inv) =>
-                          (!inv.businessId ||
-                            inv.businessId === activeBusinessId) &&
-                          inv.itemName.toLowerCase() ===
-                            item.itemName.toLowerCase(),
+              <div className="space-y-3">
+                {sourceType === "QUEUE"
+                  ? /* ---- QUEUE MODE: free-entry form ---- */
+                    deliveryItems.map((item, idx) => {
+                      const selectedCat = categories.find(
+                        (c) => c.name === item.category,
                       );
-                  const godownQty =
-                    matchedInvForQty?.godowns[selectedGodown] || 0;
-                  return (
-                    <div
-                      key={item.id}
-                      className="grid grid-cols-12 gap-2 bg-gray-50 p-3 rounded-xl"
-                    >
-                      <select
-                        value={item.category}
-                        onChange={(e) =>
-                          setDeliveryItems((prev) =>
-                            prev.map((x, i) =>
-                              i === idx
-                                ? {
-                                    ...x,
-                                    category: e.target.value,
-                                    itemName: "",
-                                  }
-                                : x,
-                            ),
-                          )
-                        }
-                        className="col-span-3 border rounded-lg p-2 text-xs font-bold outline-none"
-                      >
-                        <option value="">Category</option>
-                        {categories.map((c) => (
-                          <option key={c.name} value={c.name}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </select>
-                      <div className="col-span-5 relative">
-                        {(() => {
-                          const richItems = Object.values(inventory).filter(
-                            (inv) =>
-                              (!inv.businessId ||
-                                inv.businessId === activeBusinessId) &&
-                              (!item.category ||
-                                inv.category === item.category) &&
-                              (inv.godowns[selectedGodown] || 0) > 0,
-                          );
-                          return (
+                      const catFields = selectedCat?.fields || [];
+                      return (
+                        <div
+                          key={item.id}
+                          className="bg-amber-50 border border-amber-200 rounded-2xl p-4 space-y-3"
+                        >
+                          {/* Row header */}
+                          <div className="flex justify-between items-center">
+                            <span className="text-[10px] font-black uppercase text-amber-700">
+                              Item {idx + 1}
+                            </span>
+                            {deliveryItems.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setDeliveryItems((prev) =>
+                                    prev.filter((_, i) => i !== idx),
+                                  )
+                                }
+                                className="p-1 bg-red-50 text-red-400 rounded-lg hover:bg-red-100 transition-colors"
+                              >
+                                <X size={14} />
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Category */}
+                          <div>
+                            <p className="text-[9px] font-black uppercase text-gray-400 mb-1">
+                              Category
+                            </p>
                             <select
-                              value={`${item.itemName}|||${item.subCategory || ""}`}
+                              value={item.category}
                               onChange={(e) => {
-                                const [name, sub] = e.target.value.split("|||");
                                 setDeliveryItems((prev) =>
                                   prev.map((x, i) =>
                                     i === idx
                                       ? {
                                           ...x,
-                                          itemName: name,
-                                          subCategory: sub || "",
+                                          category: e.target.value,
+                                          itemName: "",
+                                          attributes: {},
                                         }
                                       : x,
                                   ),
                                 );
                               }}
-                              className="w-full border rounded-lg p-2 text-xs font-bold outline-none bg-white"
+                              className="w-full border rounded-xl p-2.5 font-bold text-xs outline-none focus:ring-2 focus:ring-amber-400 bg-white"
                             >
-                              <option value="|||">Select Item</option>
-                              {richItems.map((inv) => {
-                                const attrStr = Object.values(
-                                  inv.attributes || {},
-                                )
-                                  .filter(Boolean)
-                                  .join(" -- ");
-                                const godownStock =
-                                  inv.godowns[selectedGodown] || 0;
-                                const label = attrStr
-                                  ? `${inv.itemName} -- ${attrStr} -- ${godownStock} PCS -- ₹${inv.saleRate}`
-                                  : `${inv.itemName} -- ${godownStock} PCS -- ₹${inv.saleRate}`;
-                                const subVal = Object.entries(
-                                  inv.attributes || {},
-                                )
-                                  .map(([k, v]) => `${k}: ${v}`)
-                                  .join(", ");
-                                return (
-                                  <option
-                                    key={inv.sku}
-                                    value={`${inv.itemName}|||${subVal}`}
-                                  >
-                                    {label}
-                                  </option>
-                                );
-                              })}
-                            </select>
-                          );
-                        })()}
-                        {item.itemName && (
-                          <span className="text-[9px] text-gray-400 font-bold">
-                            In {selectedGodown}: {godownQty}
-                          </span>
-                        )}
-                        {item.itemName &&
-                          (() => {
-                            const matchingItems = Object.values(
-                              inventory,
-                            ).filter(
-                              (inv) =>
-                                (!inv.businessId ||
-                                  inv.businessId === activeBusinessId) &&
-                                inv.itemName.toLowerCase() ===
-                                  item.itemName.toLowerCase() &&
-                                Object.keys(inv.attributes || {}).length > 0,
-                            );
-                            if (matchingItems.length === 0) return null;
-                            const subCatOptions = matchingItems
-                              .map((inv) =>
-                                Object.entries(inv.attributes || {})
-                                  .map(([k, v]) => `${k}: ${v}`)
-                                  .join(", "),
-                              )
-                              .filter(Boolean);
-                            if (subCatOptions.length === 0) return null;
-                            return (
-                              <select
-                                value={item.subCategory}
-                                onChange={(e) =>
-                                  setDeliveryItems((prev) =>
-                                    prev.map((x, i) =>
-                                      i === idx
-                                        ? { ...x, subCategory: e.target.value }
-                                        : x,
-                                    ),
-                                  )
-                                }
-                                className="w-full border border-blue-200 rounded-lg p-1.5 mt-1 text-[10px] font-bold outline-none bg-blue-50"
-                              >
-                                <option value="">
-                                  -- Sub-category (required) --
+                              <option value="">Select Category</option>
+                              {categories.map((c) => (
+                                <option key={c.name} value={c.name}>
+                                  {c.name}
                                 </option>
-                                {matchingItems.map((inv) => {
-                                  const subLabel = Object.entries(
-                                    inv.attributes || {},
+                              ))}
+                            </select>
+                          </div>
+
+                          {/* Item Name (combo) */}
+                          <div>
+                            <p className="text-[9px] font-black uppercase text-gray-400 mb-1">
+                              Item Name
+                            </p>
+                            <ItemNameCombo
+                              category={item.category}
+                              value={item.itemName}
+                              onChange={(val) =>
+                                updateItem(idx, "itemName", val)
+                              }
+                              inventory={inventory}
+                              activeBusinessId={activeBusinessId}
+                              onSelectItem={(inv) => {
+                                setDeliveryItems((prev) =>
+                                  prev.map((x, i) =>
+                                    i === idx
+                                      ? {
+                                          ...x,
+                                          attributes: {
+                                            ...(inv.attributes || {}),
+                                          },
+                                        }
+                                      : x,
+                                  ),
+                                );
+                              }}
+                            />
+                          </div>
+
+                          {/* Dynamic sub-category fields */}
+                          {catFields.length > 0 && (
+                            <div className="space-y-2">
+                              {catFields.map((field) => (
+                                <div key={field.name}>
+                                  <p className="text-[9px] font-black uppercase text-gray-400 mb-1">
+                                    {field.name}
+                                  </p>
+                                  {field.type === "select" ||
+                                  field.type === "combo" ? (
+                                    <select
+                                      value={item.attributes[field.name] || ""}
+                                      onChange={(e) =>
+                                        updateItemAttr(
+                                          idx,
+                                          field.name,
+                                          e.target.value,
+                                        )
+                                      }
+                                      className="w-full border rounded-xl p-2.5 font-bold text-xs outline-none focus:ring-2 focus:ring-amber-400 bg-white"
+                                    >
+                                      <option value="">
+                                        Select {field.name}
+                                      </option>
+                                      {(field.options || []).map((opt) => (
+                                        <option key={opt} value={opt}>
+                                          {opt}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <input
+                                      type="text"
+                                      value={item.attributes[field.name] || ""}
+                                      onChange={(e) =>
+                                        updateItemAttr(
+                                          idx,
+                                          field.name,
+                                          e.target.value,
+                                        )
+                                      }
+                                      placeholder={field.name}
+                                      className="w-full border rounded-xl p-2.5 font-bold text-xs outline-none focus:ring-2 focus:ring-amber-400 bg-white"
+                                    />
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Packages + Qty */}
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <p className="text-[9px] font-black uppercase text-gray-400 mb-1">
+                                Packages
+                              </p>
+                              <input
+                                type="number"
+                                value={item.packages}
+                                onChange={(e) =>
+                                  updateItem(idx, "packages", e.target.value)
+                                }
+                                min="1"
+                                placeholder="1"
+                                className="w-full border rounded-xl p-2.5 font-bold text-xs outline-none focus:ring-2 focus:ring-amber-400 bg-white text-center"
+                              />
+                            </div>
+                            <div>
+                              <p className="text-[9px] font-black uppercase text-gray-400 mb-1">
+                                Qty
+                              </p>
+                              <input
+                                type="number"
+                                value={item.qty}
+                                onChange={(e) =>
+                                  updateItem(idx, "qty", e.target.value)
+                                }
+                                min="1"
+                                placeholder="0"
+                                className="w-full border rounded-xl p-2.5 font-bold text-xs outline-none focus:ring-2 focus:ring-amber-400 bg-white text-center"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  : /* ---- GODOWN MODE: existing form (unchanged) ---- */
+                    deliveryItems.map((item, idx) => {
+                      const matchedInvForQty = item.subCategory
+                        ? Object.values(inventory).find(
+                            (inv) =>
+                              (!inv.businessId ||
+                                inv.businessId === activeBusinessId) &&
+                              inv.itemName.toLowerCase() ===
+                                item.itemName.toLowerCase() &&
+                              Object.entries(inv.attributes || {})
+                                .map(([k, v]) => `${k}: ${v}`)
+                                .join(", ") === item.subCategory,
+                          )
+                        : Object.values(inventory).find(
+                            (inv) =>
+                              (!inv.businessId ||
+                                inv.businessId === activeBusinessId) &&
+                              inv.itemName.toLowerCase() ===
+                                item.itemName.toLowerCase(),
+                          );
+                      const godownQty =
+                        matchedInvForQty?.godowns[selectedGodown] || 0;
+                      return (
+                        <div
+                          key={item.id}
+                          className="grid grid-cols-12 gap-2 bg-gray-50 p-3 rounded-xl"
+                        >
+                          <select
+                            value={item.category}
+                            onChange={(e) =>
+                              setDeliveryItems((prev) =>
+                                prev.map((x, i) =>
+                                  i === idx
+                                    ? {
+                                        ...x,
+                                        category: e.target.value,
+                                        itemName: "",
+                                      }
+                                    : x,
+                                ),
+                              )
+                            }
+                            className="col-span-3 border rounded-lg p-2 text-xs font-bold outline-none"
+                          >
+                            <option value="">Category</option>
+                            {categories.map((c) => (
+                              <option key={c.name} value={c.name}>
+                                {c.name}
+                              </option>
+                            ))}
+                          </select>
+                          <div className="col-span-5 relative">
+                            {(() => {
+                              const richItems = Object.values(inventory).filter(
+                                (inv) =>
+                                  (!inv.businessId ||
+                                    inv.businessId === activeBusinessId) &&
+                                  (!item.category ||
+                                    inv.category === item.category) &&
+                                  (inv.godowns[selectedGodown] || 0) > 0,
+                              );
+                              return (
+                                <select
+                                  value={`${item.itemName}|||${item.subCategory || ""}`}
+                                  onChange={(e) => {
+                                    const [name, sub] =
+                                      e.target.value.split("|||");
+                                    setDeliveryItems((prev) =>
+                                      prev.map((x, i) =>
+                                        i === idx
+                                          ? {
+                                              ...x,
+                                              itemName: name,
+                                              subCategory: sub || "",
+                                            }
+                                          : x,
+                                      ),
+                                    );
+                                  }}
+                                  className="w-full border rounded-lg p-2 text-xs font-bold outline-none bg-white"
+                                >
+                                  <option value="|||">Select Item</option>
+                                  {richItems.map((inv) => {
+                                    const attrStr = Object.values(
+                                      inv.attributes || {},
+                                    )
+                                      .filter(Boolean)
+                                      .join(" -- ");
+                                    const godownStock =
+                                      inv.godowns[selectedGodown] || 0;
+                                    const label = attrStr
+                                      ? `${inv.itemName} -- ${attrStr} -- ${godownStock} PCS -- ₹${inv.saleRate}`
+                                      : `${inv.itemName} -- ${godownStock} PCS -- ₹${inv.saleRate}`;
+                                    const subVal = Object.entries(
+                                      inv.attributes || {},
+                                    )
+                                      .map(([k, v]) => `${k}: ${v}`)
+                                      .join(", ");
+                                    return (
+                                      <option
+                                        key={inv.sku}
+                                        value={`${inv.itemName}|||${subVal}`}
+                                      >
+                                        {label}
+                                      </option>
+                                    );
+                                  })}
+                                </select>
+                              );
+                            })()}
+                            {item.itemName && (
+                              <span className="text-[9px] text-gray-400 font-bold">
+                                In {selectedGodown}: {godownQty}
+                              </span>
+                            )}
+                            {item.itemName &&
+                              (() => {
+                                const matchingItems = Object.values(
+                                  inventory,
+                                ).filter(
+                                  (inv) =>
+                                    (!inv.businessId ||
+                                      inv.businessId === activeBusinessId) &&
+                                    inv.itemName.toLowerCase() ===
+                                      item.itemName.toLowerCase() &&
+                                    Object.keys(inv.attributes || {}).length >
+                                      0,
+                                );
+                                if (matchingItems.length === 0) return null;
+                                const subCatOptions = matchingItems
+                                  .map((inv) =>
+                                    Object.entries(inv.attributes || {})
+                                      .map(([k, v]) => `${k}: ${v}`)
+                                      .join(", "),
                                   )
-                                    .map(([k, v]) => `${k}: ${v}`)
-                                    .join(", ");
-                                  const subGodownQty =
-                                    inv.godowns[selectedGodown] || 0;
-                                  return (
-                                    <option key={inv.sku} value={subLabel}>
-                                      {subLabel} ({subGodownQty} in godown)
+                                  .filter(Boolean);
+                                if (subCatOptions.length === 0) return null;
+                                return (
+                                  <select
+                                    value={item.subCategory}
+                                    onChange={(e) =>
+                                      setDeliveryItems((prev) =>
+                                        prev.map((x, i) =>
+                                          i === idx
+                                            ? {
+                                                ...x,
+                                                subCategory: e.target.value,
+                                              }
+                                            : x,
+                                        ),
+                                      )
+                                    }
+                                    className="w-full border border-blue-200 rounded-lg p-1.5 mt-1 text-[10px] font-bold outline-none bg-blue-50"
+                                  >
+                                    <option value="">
+                                      -- Sub-category (required) --
                                     </option>
-                                  );
-                                })}
-                              </select>
-                            );
-                          })()}
-                      </div>
-                      <input
-                        type="number"
-                        value={item.qty}
-                        onChange={(e) =>
-                          setDeliveryItems((prev) =>
-                            prev.map((x, i) =>
-                              i === idx ? { ...x, qty: e.target.value } : x,
-                            ),
-                          )
-                        }
-                        placeholder="Qty"
-                        className="col-span-2 border rounded-lg p-2 text-xs font-bold outline-none text-center"
-                      />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setDeliveryItems((prev) =>
-                            prev.filter((_, i) => i !== idx),
-                          )
-                        }
-                        className="col-span-2 bg-red-50 text-red-400 rounded-lg font-black text-xs hover:bg-red-100"
-                        disabled={deliveryItems.length === 1}
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  );
-                })}
+                                    {matchingItems.map((inv) => {
+                                      const subLabel = Object.entries(
+                                        inv.attributes || {},
+                                      )
+                                        .map(([k, v]) => `${k}: ${v}`)
+                                        .join(", ");
+                                      const subGodownQty =
+                                        inv.godowns[selectedGodown] || 0;
+                                      return (
+                                        <option key={inv.sku} value={subLabel}>
+                                          {subLabel} ({subGodownQty} in godown)
+                                        </option>
+                                      );
+                                    })}
+                                  </select>
+                                );
+                              })()}
+                          </div>
+                          <input
+                            type="number"
+                            value={item.qty}
+                            onChange={(e) =>
+                              setDeliveryItems((prev) =>
+                                prev.map((x, i) =>
+                                  i === idx ? { ...x, qty: e.target.value } : x,
+                                ),
+                              )
+                            }
+                            placeholder="Qty"
+                            className="col-span-2 border rounded-lg p-2 text-xs font-bold outline-none text-center"
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDeliveryItems((prev) =>
+                                prev.filter((_, i) => i !== idx),
+                              )
+                            }
+                            className="col-span-2 bg-red-50 text-red-400 rounded-lg font-black text-xs hover:bg-red-100"
+                            disabled={deliveryItems.length === 1}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      );
+                    })}
+
+                {/* + Add Item button */}
                 <button
                   type="button"
                   data-ocid="delivery.primary_button"
                   onClick={() =>
-                    setDeliveryItems((prev) => [
-                      ...prev,
-                      {
-                        id: Date.now(),
-                        category: "",
-                        itemName: "",
-                        subCategory: "",
-                        qty: "",
-                      },
-                    ])
+                    setDeliveryItems((prev) => [...prev, emptyItem()])
                   }
-                  className="w-full py-2 border-2 border-dashed border-gray-300 rounded-xl text-gray-400 font-black text-[10px] uppercase tracking-widest hover:border-blue-400 hover:text-blue-600 transition-colors"
+                  className={`w-full py-2 border-2 border-dashed rounded-xl font-black text-[10px] uppercase tracking-widest transition-colors ${
+                    sourceType === "QUEUE"
+                      ? "border-amber-300 text-amber-500 hover:border-amber-500 hover:text-amber-700"
+                      : "border-gray-300 text-gray-400 hover:border-blue-400 hover:text-blue-600"
+                  }`}
                 >
                   + Add Item
                 </button>
@@ -1132,4 +1406,4 @@ function DeliveryTab({
 
 /* ================= MAIN APP ================= */
 
-export { DeliveryTab };
+export { CheckCircle, DeliveryTab };

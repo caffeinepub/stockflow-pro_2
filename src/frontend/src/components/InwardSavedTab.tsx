@@ -51,6 +51,11 @@ function InwardSavedTab({
         e.transporter.toLowerCase().includes(search.toLowerCase())),
   );
 
+  const isQueueDeliveryEntry = (entry: InwardSavedEntry) =>
+    (entry as any).isQueueDelivery === true ||
+    (entry as any).remark?.includes("Directly delivered") ||
+    (entry as any).notes?.includes("Queue Delivery");
+
   const handleDelete = (entry: InwardSavedEntry) => {
     setConfirmDelete(entry);
   };
@@ -185,6 +190,16 @@ function InwardSavedTab({
                     <span className="text-[9px] font-black bg-green-100 text-green-700 px-2 py-0.5 rounded-full uppercase">
                       Completed
                     </span>
+                    {isQueueDeliveryEntry(entry) && (
+                      <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-700 text-[9px] font-black px-2 py-0.5 rounded-full border border-amber-300 ml-2">
+                        <img
+                          src="/assets/generated/queue-delivery-badge-transparent.dim_64x64.png"
+                          alt=""
+                          className="w-3 h-3"
+                        />
+                        Queue Delivery
+                      </span>
+                    )}
                   </div>
                   <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5">
                     {entry.transporter && (
@@ -202,6 +217,11 @@ function InwardSavedTab({
                         ? new Date(entry.savedAt).toLocaleDateString("en-IN")
                         : "—"}
                     </p>
+                    {(entry as any).remark && (
+                      <p className="text-[10px] font-bold text-amber-600 uppercase">
+                        {(entry as any).remark}
+                      </p>
+                    )}
                   </div>
                   <div className="flex flex-wrap gap-1 mt-2">
                     {entry.items.map((itm, i) => (
@@ -334,6 +354,11 @@ function InwardSavedTab({
                         {entry.supplier && (
                           <p className="text-xs font-bold text-gray-700">
                             Supplier: <b>{entry.supplier}</b>
+                          </p>
+                        )}
+                        {(entry as any).remark && (
+                          <p className="text-xs font-bold text-amber-700">
+                            📌 {(entry as any).remark}
                           </p>
                         )}
                       </div>

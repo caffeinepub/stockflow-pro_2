@@ -2554,6 +2554,7 @@ export default function App() {
               setDeliveredBilties((prev) => [...new Set([...prev, biltyNo])])
             }
             requiredFields={requiredFields}
+            generateSku={generateSku}
           />
         )}
         {activeTab === "analytics" && currentUser.role === "admin" && (
