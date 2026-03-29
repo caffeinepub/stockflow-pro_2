@@ -36,6 +36,16 @@ actor {
     subCategories : [SubCategory];
   };
 
+  // CategoryV2 — stores businessId directly on the record.
+  // This is the authoritative type used by all public functions.
+  // categoriesV2 is the source of truth; `categories` is kept only for stable variable upgrade compatibility.
+  type CategoryV2 = {
+    id            : Text;
+    name          : Text;
+    subCategories : [SubCategory];
+    businessId    : Text;
+  };
+
   type BiltyPrefix     = { id : Text; prefix : Text };
   type TransportTracker = { id : Text; transport : Text; trackingUrl : Text };
   type LoginResult      = { #ok : User; #err : Text };
@@ -180,6 +190,7 @@ actor {
   stable var businesses        : [Business]         = [];
   stable var godowns           : [Godown]           = [];
   stable var categories        : [Category]         = [];
+  stable var categoriesV2      : [CategoryV2]       = [];
   stable var biltyPrefixes     : [BiltyPrefix]      = [];
   stable var transportTrackers : [TransportTracker] = [];
   stable var transitEntries    : [TransitEntry]     = [];
@@ -261,6 +272,28 @@ actor {
       if (seedVersion < 6) { seedVersion := 6 };
       // Version 7: no-op bump to skip any future bad repair calls
       if (seedVersion < 7) { seedVersion := 7 };
+      // Version 8: migrate legacy categories → categoriesV2 with direct businessId field
+      if (seedVersion < 8) {
+        seedVersion := 8;
+        if (categoriesV2.size() == 0 and categories.size() > 0) {
+          var v2 : [CategoryV2] = [];
+          for (c in categories.vals()) {
+            // Find all businesses this category belongs to via the map
+            let bizMappings = Array.filter(categoryBusinessMap, func((cId, _) : (Text, Text)) : Bool { cId == c.id });
+            if (bizMappings.size() == 0) {
+              // Unmapped legacy → belongs to b1
+              v2 := Array.append(v2, [{ id = c.id; name = c.name; subCategories = c.subCategories; businessId = "b1" }]);
+            } else {
+              for ((_, bId) in bizMappings.vals()) {
+                // If shared across multiple businesses, create unique IDs per business
+                let uniqueId = if (bizMappings.size() > 1) { bId # "-" # c.id } else { c.id };
+                v2 := Array.append(v2, [{ id = uniqueId; name = c.name; subCategories = c.subCategories; businessId = bId }]);
+              };
+            };
+          };
+          categoriesV2 := v2;
+        };
+      };
       return;
     };
     seedVersion := 4;
@@ -290,6 +323,26 @@ actor {
     ];
     // Seed the category map for all seeded categories under b1
     categoryBusinessMap := [("cat1","b1"),("cat2","b1"),("cat3","b1")];
+    // Seed categoriesV2 directly (source of truth)
+    categoriesV2 := [
+      { id = "cat1"; name = "Safi";   businessId = "b1";
+        subCategories = [
+          { id = "sc1"; name = "Size";  fieldType = "text";   options = [] },
+          { id = "sc2"; name = "Color"; fieldType = "select"; options = ["black","tiranga","mix"] }
+        ]
+      },
+      { id = "cat2"; name = "Lungi";  businessId = "b1";
+        subCategories = [
+          { id = "sc3"; name = "Size";  fieldType = "select"; options = ["2 mtr","2.25 mtr","2.5 mtr"] },
+          { id = "sc4"; name = "Color"; fieldType = "select"; options = ["plain white","plain colour","mix"] }
+        ]
+      },
+      { id = "cat3"; name = "Napkin"; businessId = "b1";
+        subCategories = [
+          { id = "sc5"; name = "Size"; fieldType = "select"; options = ["14x21","12x18","16x24"] }
+        ]
+      }
+    ];
     biltyPrefixes := [
       { id = "p1"; prefix = "sola" },
       { id = "p2"; prefix = "erob" },
@@ -370,7 +423,7 @@ actor {
     godowns := Array.filter(godowns, func(g : Godown) : Bool { g.id != id });
   };
 
-  public query func getCategories() : async [Category] { categories };
+  public query func getCategories() : async [CategoryV2] { categoriesV2 };
 
   // Filter by the map; unmapped categories default to b1 (legacy compatibility).
   // Check if this category has any map entry for the given businessId.
@@ -394,76 +447,63 @@ actor {
     }
   };
 
-  public query func getCategoriesByBusiness(businessId : Text) : async [Category] {
-    Array.filter(categories, func(c : Category) : Bool {
-      catBelongsToBusiness(c.id, businessId)
+  public query func getCategoriesByBusiness(businessId : Text) : async [CategoryV2] {
+    Array.filter(categoriesV2, func(c : CategoryV2) : Bool {
+      c.businessId == businessId or (c.businessId == "" and businessId == "b1")
     })
   };
 
   public func addCategory(id : Text, name : Text, businessId : Text) : async () {
     seed();
-    // Prevent duplicate category entries
-    let exists = Array.find(categories, func(c : Category) : Bool { c.id == id });
+    // Prevent duplicate: only add if this exact (id, businessId) pair doesn't exist
+    let exists = Array.find(categoriesV2, func(c : CategoryV2) : Bool {
+      c.id == id and c.businessId == businessId
+    });
     switch (exists) {
-      case (?_) {
-        // Category object already exists — ensure THIS business has a map entry for it.
-        // Use (catId, businessId) pair check so different businesses can both reference the same category.
-        let alreadyMapped = Array.find(categoryBusinessMap, func((cId, bId) : (Text, Text)) : Bool {
-          cId == id and bId == businessId
-        });
-        switch (alreadyMapped) {
-          case null { categoryBusinessMap := Array.append(categoryBusinessMap, [(id, businessId)]) };
-          case (?_) {};
-        };
-      };
       case null {
-        categories := Array.append(categories, [{ id; name; subCategories = [] }]);
+        categoriesV2 := Array.append(categoriesV2, [{ id; name; subCategories = []; businessId }]);
+        // Also update legacy map for backward compat
         categoryBusinessMap := Array.append(categoryBusinessMap, [(id, businessId)]);
       };
+      case (?_) {}; // Already exists for this business — no-op
     };
   };
 
   public func updateCategory(id : Text, name : Text) : async () {
-    categories := Array.map(categories, func(c : Category) : Category {
-      if (c.id == id) { { id; name; subCategories = c.subCategories } } else c
+    categoriesV2 := Array.map(categoriesV2, func(c : CategoryV2) : CategoryV2 {
+      if (c.id == id) { { id; name; subCategories = c.subCategories; businessId = c.businessId } } else c
     });
   };
 
-  // Business-scoped delete: only removes THIS business's map entry.
-  // The category object is removed only when no other business still references it.
+  // Business-scoped delete: removes only this business's category entry from categoriesV2.
   public func deleteCategory(id : Text, businessId : Text) : async () {
-    // Remove only the (id, businessId) pair from the map
+    categoriesV2 := Array.filter(categoriesV2, func(c : CategoryV2) : Bool {
+      not (c.id == id and c.businessId == businessId)
+    });
     categoryBusinessMap := Array.filter(categoryBusinessMap, func((cId, bId) : (Text, Text)) : Bool {
       not (cId == id and bId == businessId)
     });
-    // Only remove the category object if no other business has it in the map
-    let stillUsed = Array.find(categoryBusinessMap, func((cId, _) : (Text, Text)) : Bool { cId == id });
-    switch (stillUsed) {
-      case null {
-        categories := Array.filter(categories, func(c : Category) : Bool { c.id != id });
-      };
-      case (?_) {}; // Another business still references this category — keep the object
-    };
   };
 
   // Admin-level global delete (used in restore flow only)
   public func deleteCategoryGlobal(id : Text) : async () {
+    categoriesV2 := Array.filter(categoriesV2, func(c : CategoryV2) : Bool { c.id != id });
     categories := Array.filter(categories, func(c : Category) : Bool { c.id != id });
     categoryBusinessMap := Array.filter(categoryBusinessMap, func((cId,_) : (Text,Text)) : Bool { cId != id });
   };
 
   public func addSubCategory(categoryId : Text, sc : SubCategory) : async () {
-    categories := Array.map(categories, func(c : Category) : Category {
+    categoriesV2 := Array.map(categoriesV2, func(c : CategoryV2) : CategoryV2 {
       if (c.id == categoryId) {
-        { id = c.id; name = c.name; subCategories = Array.append(c.subCategories, [sc]) }
+        { id = c.id; name = c.name; subCategories = Array.append(c.subCategories, [sc]); businessId = c.businessId }
       } else c
     });
   };
 
   public func updateSubCategory(categoryId : Text, sc : SubCategory) : async () {
-    categories := Array.map(categories, func(c : Category) : Category {
+    categoriesV2 := Array.map(categoriesV2, func(c : CategoryV2) : CategoryV2 {
       if (c.id == categoryId) {
-        { id = c.id; name = c.name;
+        { id = c.id; name = c.name; businessId = c.businessId;
           subCategories = Array.map(c.subCategories, func(s : SubCategory) : SubCategory {
             if (s.id == sc.id) sc else s
           })
@@ -473,9 +513,9 @@ actor {
   };
 
   public func deleteSubCategory(categoryId : Text, subCategoryId : Text) : async () {
-    categories := Array.map(categories, func(c : Category) : Category {
+    categoriesV2 := Array.map(categoriesV2, func(c : CategoryV2) : CategoryV2 {
       if (c.id == categoryId) {
-        { id = c.id; name = c.name;
+        { id = c.id; name = c.name; businessId = c.businessId;
           subCategories = Array.filter(c.subCategories, func(s : SubCategory) : Bool { s.id != subCategoryId })
         }
       } else c

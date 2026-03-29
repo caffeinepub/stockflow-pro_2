@@ -408,6 +408,21 @@ function toBackendTxRecord(t: Transaction): TxRecord {
   };
 }
 
+// localStorage cache helpers for offline resilience
+const saveBizCache = (key: string, businessId: string, data: unknown) => {
+  try {
+    localStorage.setItem(`sf-${key}-${businessId}`, JSON.stringify(data));
+  } catch {}
+};
+const loadBizCache = <T,>(key: string, businessId: string): T | null => {
+  try {
+    const raw = localStorage.getItem(`sf-${key}-${businessId}`);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch {
+    return null;
+  }
+};
+
 export default function App() {
   const { actor } = useActor();
   const [isDataLoading, setIsDataLoading] = useState(false);
@@ -663,6 +678,7 @@ export default function App() {
   const transportTrackerIdMapRef = useRef<Record<string, string>>({}); // transport key -> id
   const isInitialLoadDoneRef = useRef(false);
   const activeBusinessIdRef = useRef("b1"); // always current, avoids stale closure
+  const prevBusinessIdRef = useRef("b1"); // tracks last successfully loaded business
 
   // Load all data from backend on actor ready (config + transactional in one pass)
   useEffect(() => {
@@ -732,6 +748,7 @@ export default function App() {
             setCategories(
               (bizCats as BackendCategory[]).map(fromBackendCategory),
             );
+            categoryMapRef.current = {};
             for (const c of bizCats as BackendCategory[]) {
               categoryMapRef.current[c.name] = {
                 id: c.id,
@@ -740,6 +757,7 @@ export default function App() {
             }
           } else {
             setCategories([]);
+            categoryMapRef.current = {};
           }
         } catch {
           // On error leave categories empty — no cross-business fallback
@@ -841,8 +859,11 @@ export default function App() {
           // settings load failure is non-critical
         }
         isInitialLoadDoneRef.current = true;
+        prevBusinessIdRef.current = resolvedBusinessId;
         setIsDataLoading(false);
       } catch (e) {
+        isInitialLoadDoneRef.current = true;
+        prevBusinessIdRef.current = "b1";
         console.error("Failed to load data from backend:", e);
         showNotification(
           `Failed to load data: ${e instanceof Error ? e.message : String(e)}`,
@@ -858,7 +879,12 @@ export default function App() {
     if (!actor || !activeBusinessId || !isInitialLoadDoneRef.current) return;
     setIsDataLoading(true);
     (async () => {
-      const prevBusinessId = activeBusinessId;
+      // Capture the last known-good business BEFORE the async switch begins
+      // lastGoodBusinessId no longer used (we keep user on attempted business on failure)
+      let step = "fetching";
+      // Clear state immediately so stale B1 data doesn't show during B2 load
+      setCategories([]);
+      setGodowns([]);
       try {
         const [
           bizGodowns,
@@ -883,19 +909,23 @@ export default function App() {
         ]);
 
         // Godowns — clear stale entries before loading business-specific ones
+        step = "godowns";
         godownMapRef.current = {};
-        setGodowns((bizGodowns as any[]).map((g: any) => g.name));
+        const godownNames = (bizGodowns as any[]).map((g: any) => g.name);
+        setGodowns(godownNames);
+        saveBizCache("godowns", activeBusinessId, godownNames);
         for (const g of bizGodowns as any[]) {
           godownMapRef.current[g.name] = { id: g.id, businessId: g.businessId };
         }
 
         // Categories
+        step = "categories";
         if ((bizCats as unknown[]).length > 0) {
-          setCategories(
-            (bizCats as unknown[]).map(
-              fromBackendCategory as (c: unknown) => Category,
-            ),
+          const mappedCats = (bizCats as unknown[]).map(
+            fromBackendCategory as (c: unknown) => Category,
           );
+          setCategories(mappedCats);
+          saveBizCache("categories", activeBusinessId, mappedCats);
           const newMap: Record<
             string,
             { id: string; subCategories: BackendSubCategory[] }
@@ -906,42 +936,76 @@ export default function App() {
           categoryMapRef.current = newMap;
         } else {
           setCategories([]);
+          saveBizCache("categories", activeBusinessId, []);
           categoryMapRef.current = {};
         }
 
         // Transit
-        const transitGoodsData = (backendTransit as BackendTransitEntry[]).map(
-          fromBackendTransit,
-        );
+        step = "transit";
+        const transitGoodsData = (
+          backendTransit as BackendTransitEntry[]
+        ).flatMap((e) => {
+          try {
+            return [fromBackendTransit(e)];
+          } catch {
+            return [];
+          }
+        });
         setTransitGoods(transitGoodsData);
         transitGoodsRef.current = transitGoodsData;
 
         // Queue
+        step = "queue";
         const pendingParcelsData = (backendQueue as BackendQueueEntry[])
           .filter((e) => !e.delivered)
-          .map(fromBackendQueue);
+          .flatMap((e) => {
+            try {
+              return [fromBackendQueue(e)];
+            } catch {
+              return [];
+            }
+          });
         setPendingParcels(pendingParcelsData);
         pendingParcelsRef.current = pendingParcelsData;
 
         // InwardSaved
+        step = "inwardSaved";
         const inwardSavedData = (
           backendInwardSaved as BackendInwardSavedEntry[]
-        ).map(fromBackendInwardSaved);
+        ).flatMap((e) => {
+          try {
+            return [fromBackendInwardSaved(e)];
+          } catch {
+            return [];
+          }
+        });
         setInwardSaved(inwardSavedData);
         inwardSavedRef.current = inwardSavedData;
 
         // Inventory
+        step = "inventory";
         const invMap: Record<string, InventoryItem> = {};
         for (const e of backendInventory as BackendInventoryItem[]) {
-          const [k, v] = fromBackendInventory(e);
-          invMap[k] = v;
+          try {
+            const [k, v] = fromBackendInventory(e);
+            invMap[k] = v;
+          } catch {
+            /* skip bad record */
+          }
         }
         setInventory(invMap);
         inventoryRef.current = invMap;
 
         // Deliveries
-        const deliveries = (backendDeliveries as DeliveryEntry[]).map(
-          fromBackendDelivery,
+        step = "deliveries";
+        const deliveries = (backendDeliveries as DeliveryEntry[]).flatMap(
+          (e) => {
+            try {
+              return [fromBackendDelivery(e)];
+            } catch {
+              return [];
+            }
+          },
         );
         setDeliveryRecords(deliveries);
         setDeliveredBilties(
@@ -951,20 +1015,58 @@ export default function App() {
         );
 
         // Transactions
-        const transactionsData = (backendTxHistory as TxRecord[]).map(
-          fromBackendTxRecord,
+        step = "transactions";
+        const transactionsData = (backendTxHistory as TxRecord[]).flatMap(
+          (e) => {
+            try {
+              return [fromBackendTxRecord(e)];
+            } catch {
+              return [];
+            }
+          },
         );
         setTransactions(transactionsData);
         transactionsRef.current = transactionsData;
 
         // Transfers
+        step = "transfers";
         setTransfers(backendTransfers as TransferEntry[]);
+
+        // Mark this business as the last successfully loaded one
+        prevBusinessIdRef.current = activeBusinessId;
       } catch (e) {
-        console.error("Business switch data reload failed:", e);
-        // Revert to previous business on error — preserves current data
-        setActiveBusinessId(prevBusinessId);
+        console.error("Business switch failed at step:", step, e);
+        // Don't revert the dropdown — keep user on attempted business, load from cache
+        const cachedCats = loadBizCache<Category[]>(
+          "categories",
+          activeBusinessId,
+        );
+        if (cachedCats && cachedCats.length > 0) {
+          setCategories(cachedCats);
+          categoryMapRef.current = {};
+          for (const c of cachedCats) {
+            categoryMapRef.current[c.name] = {
+              id: (c as any).id || c.name.toLowerCase(),
+              subCategories: [],
+            };
+          }
+        } else {
+          setCategories([]);
+          categoryMapRef.current = {};
+        }
+        const cachedGodowns = loadBizCache<string[]>(
+          "godowns",
+          activeBusinessId,
+        );
+        if (cachedGodowns && cachedGodowns.length > 0) {
+          setGodowns(cachedGodowns);
+        } else {
+          setGodowns([]);
+          godownMapRef.current = {};
+        }
         setNotification({
-          message: "Failed to switch business. Please try again.",
+          message:
+            "Could not load all data for this business. Some data shown from cache. Retry when connection improves.",
           type: "error",
         });
       } finally {
@@ -1070,6 +1172,7 @@ export default function App() {
         ? (updater as (p: string[]) => string[])(prev)
         : updater;
     setGodowns(next);
+    saveBizCache("godowns", activeBusinessIdRef.current, next);
     if (!actor) return;
     const added = next.filter((name: string) => !prev.includes(name));
     const deleted = prev.filter((name) => !next.includes(name));
@@ -1099,6 +1202,7 @@ export default function App() {
         ? (updater as (p: Category[]) => Category[])(prev)
         : updater;
     setCategories(next);
+    saveBizCache("categories", activeBusinessIdRef.current, next);
     if (!actor) return;
     const added = next.filter(
       (c: Category) => !prev.find((p) => p.name === c.name),
@@ -1129,7 +1233,10 @@ export default function App() {
     }
     for (const c of deleted) {
       const mapping = categoryMapRef.current[c.name];
-      const catId = mapping?.id || c.name.toLowerCase().replace(/\s+/g, "-");
+      // Always use business-prefixed fallback ID to prevent cross-business deletion
+      const catId =
+        mapping?.id ||
+        `${activeBusinessIdRef.current}-${c.name.toLowerCase().replace(/\s+/g, "-")}`;
       backendSave(
         (actor as any).deleteCategory(catId, activeBusinessIdRef.current),
         "deleteCategory",

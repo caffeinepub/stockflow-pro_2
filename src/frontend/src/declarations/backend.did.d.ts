@@ -16,6 +16,7 @@ export interface Category {
   'id' : string,
   'name' : string,
   'subCategories' : Array<SubCategory>,
+  'businessId' : string,
 }
 export interface DeliveryEntry {
   'id' : string,

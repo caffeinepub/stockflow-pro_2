@@ -128,6 +128,7 @@ export const Category = IDL.Record({
   'id' : IDL.Text,
   'name' : IDL.Text,
   'subCategories' : IDL.Vec(SubCategory),
+  'businessId' : IDL.Text,
 });
 export const Godown = IDL.Record({
   'id' : IDL.Text,
