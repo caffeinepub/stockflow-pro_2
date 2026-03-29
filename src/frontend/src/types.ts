@@ -95,6 +95,8 @@ export interface Transaction {
   transferredBy?: string;
   subCategory?: string;
   totalQtyInBale?: number;
+  createdAt?: string;
+  isDirectDelivery?: boolean;
   baleItemsList?: {
     itemName: string;
     category: string;

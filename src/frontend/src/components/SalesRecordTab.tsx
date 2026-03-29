@@ -1,4 +1,4 @@
-import { Receipt } from "lucide-react";
+import { Receipt, Truck } from "lucide-react";
 import { useState } from "react";
 import type { Transaction } from "../types";
 
@@ -87,7 +87,12 @@ function SalesRecordTab({
             <span>Category</span>
             <span>Item</span>
             <span>Qty</span>
-            <span>Rate</span>
+            <span className="flex items-center gap-1">
+              Bilty / Rate
+              <span className="flex items-center gap-0.5 bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded-full text-[9px] font-black normal-case ml-1">
+                <Truck size={8} /> Direct
+              </span>
+            </span>
             <span>By</span>
           </div>
           <div className="divide-y">
@@ -103,16 +108,28 @@ function SalesRecordTab({
                 <span className="text-xs font-black text-gray-500 uppercase">
                   {t.category || "—"}
                 </span>
-                <span className="text-sm font-black text-gray-900 col-span-2 md:col-span-1">
+                <span className="text-sm font-black text-gray-900 col-span-2 md:col-span-1 flex items-center gap-1 flex-wrap">
                   {t.itemName || t.notes || "Sale"}
+                  {(t.isDirectDelivery ||
+                    (t.notes || "").includes("Direct Delivery")) && (
+                    <span className="inline-flex items-center gap-1 bg-orange-100 text-orange-700 text-[9px] font-black px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                      <Truck size={9} /> Direct Delivery
+                    </span>
+                  )}
                 </span>
                 <span className="text-xs font-black text-green-700">
                   {t.itemsCount ?? "—"}
                 </span>
                 <span className="text-xs font-bold text-gray-500">
-                  {t.notes?.includes("₹")
-                    ? t.notes.match(/₹[\d.]+/)?.[0] || "—"
-                    : "—"}
+                  {t.biltyNo ? (
+                    <span className="text-blue-600 font-black">
+                      {t.biltyNo}
+                    </span>
+                  ) : t.notes?.includes("₹") ? (
+                    t.notes.match(/₹[\d.]+/)?.[0] || "—"
+                  ) : (
+                    "—"
+                  )}
                 </span>
                 <span className="text-[10px] font-bold text-gray-400">
                   {t.user}

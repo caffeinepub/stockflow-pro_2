@@ -363,17 +363,20 @@ function DeliveryTab({
         };
         setInwardSaved((prev) => [inwardSavedEntry, ...prev]);
 
-        // Add items to inventory so dashboard timeline and stock are updated
-        for (const item of validItems) {
-          const sku = generateSku(
+        // Add items to inventory (inward) then immediately reduce via SALE (outward)
+        // This ensures dashboard shows correct net stock and analytics record both flows
+        for (const [idx, item] of validItems.entries()) {
+          const generatedSku = generateSku(
             item.category,
             item.itemName,
             item.attributes || {},
             "0",
             activeBusinessId,
           );
+          const itemQty = Number(item.qty);
+          // Step 1: Add real qty to inventory (inward)
           _updateStock(
-            sku,
+            generatedSku,
             {
               category: item.category,
               itemName: item.itemName,
@@ -382,13 +385,64 @@ function DeliveryTab({
               saleRate: 0,
               purchaseRate: 0,
             },
+            itemQty,
             0,
-            Number(item.qty),
             selectedGodown,
           );
-          // Deduct stock since item was directly delivered to customer
+          // Step 2: Record SALE transaction (marks it as direct delivery to customer)
+          const saleRecord = {
+            id: Date.now() + 3 + idx,
+            type: "SALE",
+            sku: generatedSku,
+            itemName: item.itemName,
+            category: item.category,
+            itemsCount: itemQty,
+            fromLocation: selectedGodown,
+            toLocation: customerName || "Direct Customer",
+            date: now.split("T")[0],
+            createdAt: now,
+            user: currentUser.username,
+            biltyNo: selectedQueue.biltyNo,
+            businessId: activeBusinessId,
+            isDirectDelivery: true,
+            notes: `Direct Delivery to Customer | Bilty: ${selectedQueue.biltyNo} | Customer: ${customerName || "N/A"}`,
+          };
+          setTransactions((prev) => [saleRecord, ...prev]);
+          // Step 3: Persist SALE to backend
+          if (actor) {
+            try {
+              await (actor as any).addTxRecord({
+                id: BigInt(saleRecord.id),
+                txType: "SALE",
+                biltyNo: saleRecord.biltyNo || "",
+                businessId: saleRecord.businessId,
+                date: saleRecord.date,
+                user: saleRecord.user,
+                fromLocation: saleRecord.fromLocation || "",
+                toLocation: saleRecord.toLocation || "",
+                notes: saleRecord.notes || "",
+                itemsCount: BigInt(saleRecord.itemsCount),
+                createdAt: BigInt(Date.now() + 3 + idx),
+                baleItemsList: [
+                  {
+                    itemName: item.itemName,
+                    category: item.category,
+                    attributes: item.attributes || {},
+                    qty: itemQty,
+                    shopQty: 0,
+                    godownQuants: { [selectedGodown]: itemQty },
+                    saleRate: 0,
+                    purchaseRate: 0,
+                  },
+                ],
+              });
+            } catch (e) {
+              console.error("Failed to persist sale tx:", e);
+            }
+          }
+          // Step 4: Reduce godown stock so dashboard shows net 0 for this item
           _updateStock(
-            sku,
+            generatedSku,
             {
               category: item.category,
               itemName: item.itemName,
@@ -397,8 +451,8 @@ function DeliveryTab({
               saleRate: 0,
               purchaseRate: 0,
             },
+            -itemQty,
             0,
-            -Number(item.qty),
             selectedGodown,
           );
         }
@@ -432,7 +486,16 @@ function DeliveryTab({
               notes: inwardTx.notes,
               itemsCount: BigInt(inwardTx.itemsCount),
               createdAt: inwardTx.createdAt,
-              baleItemsList: [],
+              baleItemsList: baleItems.map((bi: any) => ({
+                itemName: bi.itemName,
+                category: bi.category,
+                attributes: bi.attributes || {},
+                qty: bi.qty,
+                shopQty: bi.shopQty || 0,
+                godownQuants: bi.godownQuants || {},
+                saleRate: bi.saleRate || 0,
+                purchaseRate: bi.purchaseRate || 0,
+              })),
             });
           } catch (e) {
             console.error("Failed to persist auto-inward tx:", e);
