@@ -18,7 +18,7 @@ import {
   UserCheck,
   Warehouse,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   Category as BackendCategory,
   Godown as BackendGodown,
@@ -74,20 +74,17 @@ import type {
   Transaction,
   TransitRecord,
 } from "./types";
-
 // ---- Type converters ----
 function fromBackendRole(r: Role): "admin" | "staff" | "supplier" {
   if (r === RoleEnum.admin) return "admin";
   if (r === RoleEnum.supplier) return "supplier";
   return "staff";
 }
-
 function toBackendRole(s: string): Role {
   if (s === "admin") return RoleEnum.admin;
   if (s === "supplier") return RoleEnum.supplier;
   return RoleEnum.staff;
 }
-
 function fromBackendUser(u: BackendUser): AppUser & { _backendId: string } {
   return {
     _backendId: u.id,
@@ -97,7 +94,6 @@ function fromBackendUser(u: BackendUser): AppUser & { _backendId: string } {
     assignedBusinessIds: u.businessIds,
   } as AppUser & { _backendId: string };
 }
-
 function fromBackendCategory(c: BackendCategory): Category {
   return {
     name: c.name,
@@ -108,9 +104,7 @@ function fromBackendCategory(c: BackendCategory): Category {
     })),
   };
 }
-
 // ---- Transactional converters ----
-
 function toBackendTransit(t: TransitRecord): BackendTransitEntry {
   return {
     id: String(t.id),
@@ -126,7 +120,6 @@ function toBackendTransit(t: TransitRecord): BackendTransitEntry {
     createdAt: BigInt(Date.now()),
   };
 }
-
 function fromBackendTransit(e: BackendTransitEntry): TransitRecord {
   return {
     id: Number.parseInt(e.id) || 0,
@@ -143,7 +136,6 @@ function fromBackendTransit(e: BackendTransitEntry): TransitRecord {
     customData: {},
   };
 }
-
 function toBackendQueue(p: PendingParcel): BackendQueueEntry {
   const meta = JSON.stringify({
     packages: p.packages,
@@ -169,7 +161,6 @@ function toBackendQueue(p: PendingParcel): BackendQueueEntry {
     ],
   };
 }
-
 function fromBackendQueue(e: BackendQueueEntry): PendingParcel {
   const metaBale = e.bales.find((b: QueueBale) => b.baleLabel === "__meta__");
   let meta: Record<string, any> = {};
@@ -197,7 +188,6 @@ function fromBackendQueue(e: BackendQueueEntry): PendingParcel {
     itemCategory: meta.itemCategory,
   } as PendingParcel;
 }
-
 function toBackendInwardSaved(
   entry: InwardSavedEntry,
 ): BackendInwardSavedEntry {
@@ -235,7 +225,6 @@ function toBackendInwardSaved(
     })),
   };
 }
-
 function fromBackendInwardSaved(e: BackendInwardSavedEntry): InwardSavedEntry {
   return {
     id: Number.parseInt(e.id) || 0,
@@ -270,13 +259,12 @@ function fromBackendInwardSaved(e: BackendInwardSavedEntry): InwardSavedEntry {
     }),
   };
 }
-
 function toBackendInventory(
   item: InventoryItem,
   businessId = "",
 ): BackendInventoryItem {
   return {
-    id: item.sku,
+    id: item.sku || (item as any).id || "",
     businessId: item.businessId || businessId,
     category: item.category,
     itemName: item.itemName,
@@ -290,7 +278,6 @@ function toBackendInventory(
     purchaseRate: item.purchaseRate || 0,
   };
 }
-
 function fromBackendInventory(
   e: BackendInventoryItem,
 ): [string, InventoryItem] {
@@ -316,7 +303,6 @@ function fromBackendInventory(
   };
   return [e.id, item];
 }
-
 function fromBackendDelivery(e: DeliveryEntry): DeliveryRecord {
   return {
     id: e.id,
@@ -336,7 +322,6 @@ function fromBackendDelivery(e: DeliveryEntry): DeliveryRecord {
     businessId: e.businessId,
   };
 }
-
 function fromBackendTxRecord(e: TxRecord): Transaction {
   // e.txType from backend.ts is a TxType enum string (e.g. "sale", "inward")
   // Handle both string and object forms safely
@@ -379,7 +364,6 @@ function fromBackendTxRecord(e: TxRecord): Transaction {
     itemsCount: Number(e.qty) || undefined,
   };
 }
-
 function toBackendTxRecord(t: Transaction): TxRecord {
   const txTypeFromString = (s: string): TxRecord["txType"] => {
     const u = (s || "").toUpperCase();
@@ -407,7 +391,6 @@ function toBackendTxRecord(t: Transaction): TxRecord {
     createdAt: BigInt(new Date(t.date || Date.now()).getTime()),
   };
 }
-
 // localStorage cache helpers for offline resilience
 const saveBizCache = (key: string, businessId: string, data: unknown) => {
   try {
@@ -422,11 +405,9 @@ const loadBizCache = <T,>(key: string, businessId: string): T | null => {
     return null;
   }
 };
-
 export default function App() {
   const { actor } = useActor();
   const [isDataLoading, setIsDataLoading] = useState(false);
-
   const [activeTab, setActiveTab] = useState("dashboard");
   const [settingsSubTab, setSettingsSubTab] = useState<string | undefined>(
     undefined,
@@ -445,7 +426,6 @@ export default function App() {
     defaultValue?: string;
     onConfirm: (v: string) => void;
   } | null>(null);
-
   const [businesses, setBusinesses] = useState<Business[]>([
     { id: "default", name: "StockFlow Default" },
   ]);
@@ -477,7 +457,6 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("categoryUnits", JSON.stringify(categoryUnits));
   }, [categoryUnits]);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally persist on change
   useEffect(() => {
     localStorage.setItem(
       "itemUnitOverrides",
@@ -558,12 +537,10 @@ export default function App() {
   const [selectedHistoryItem, setSelectedHistoryItem] = useState<string | null>(
     null,
   );
-
   const transactionsRef = useRef<Transaction[]>([]);
   useEffect(() => {
     transactionsRef.current = transactions;
   }, [transactions]);
-
   const setTransactionsWithBackend = (updaterOrArray: any) => {
     const prev = transactionsRef.current;
     const next =
@@ -599,7 +576,6 @@ export default function App() {
         "addTxRecord",
       );
   };
-
   const refreshInventory = async () => {
     if (!actor) return;
     const freshInv = await (actor as any).getInventory(activeBusinessId);
@@ -610,62 +586,50 @@ export default function App() {
     }
     setInventory(invMap);
   };
-
   const [moveToQueueData, setMoveToQueueData] = useState<TransitRecord | null>(
     null,
   );
-
   // Refs for tracking current state in synced setters
   const usersRef = useRef(users);
   useEffect(() => {
     usersRef.current = users;
   }, [users]);
-
   const businessesRef = useRef(businesses);
   useEffect(() => {
     businessesRef.current = businesses;
   }, [businesses]);
-
   const godownsRef = useRef(godowns);
   useEffect(() => {
     godownsRef.current = godowns;
   }, [godowns]);
-
   const categoriesRef = useRef(categories);
   useEffect(() => {
     categoriesRef.current = categories;
   }, [categories]);
-
   const biltyPrefixesRef = useRef(biltyPrefixes);
   useEffect(() => {
     biltyPrefixesRef.current = biltyPrefixes;
   }, [biltyPrefixes]);
-
   const transportTrackingRef = useRef(transportTracking);
   useEffect(() => {
     transportTrackingRef.current = transportTracking;
   }, [transportTracking]);
-
   const transitGoodsRef = useRef(transitGoods);
   useEffect(() => {
     transitGoodsRef.current = transitGoods;
   }, [transitGoods]);
-
   const pendingParcelsRef = useRef(pendingParcels);
   useEffect(() => {
     pendingParcelsRef.current = pendingParcels;
   }, [pendingParcels]);
-
   const inwardSavedRef = useRef(inwardSaved);
   useEffect(() => {
     inwardSavedRef.current = inwardSaved;
   }, [inwardSaved]);
-
   const inventoryRef = useRef(inventory);
   useEffect(() => {
     inventoryRef.current = inventory;
   }, [inventory]);
-
   // Maps for backend IDs
   const godownMapRef = useRef<
     Record<string, { id: string; businessId: string }>
@@ -679,212 +643,13 @@ export default function App() {
   const isInitialLoadDoneRef = useRef(false);
   const activeBusinessIdRef = useRef("b1"); // always current, avoids stale closure
   const prevBusinessIdRef = useRef("b1"); // tracks last successfully loaded business
-
-  // Load all data from backend on actor ready (config + transactional in one pass)
-  useEffect(() => {
-    if (!actor) return;
-    void dataLoadVersion; // trigger reload after login seeds canister
-    setIsDataLoading(true);
-    (async () => {
-      try {
-        const [
-          backendUsers,
-          backendBusinesses,
-          backendGodowns,
-          backendPrefixes,
-          backendTrackers,
-        ] = await Promise.all([
-          actor.getUsers(),
-          actor.getBusinesses(),
-          actor.getGodowns(),
-          actor.getBiltyPrefixes(),
-          actor.getTransportTrackers(),
-        ]);
-
-        if (backendUsers.length > 0) {
-          setUsers(backendUsers.map(fromBackendUser) as AppUser[]);
-        }
-        let resolvedBusinessId = "b1";
-        if (backendBusinesses.length > 0) {
-          setBusinesses(backendBusinesses);
-          resolvedBusinessId = backendBusinesses[0].id;
-          for (const b of backendBusinesses) {
-            businessMapRef.current[b.name] = b.id;
-          }
-        }
-        setActiveBusinessId(resolvedBusinessId);
-        // Only build godownMapRef from global list for ID lookups — do NOT set godowns state from it
-        for (const g of backendGodowns) {
-          godownMapRef.current[g.name] = {
-            id: g.id,
-            businessId: g.businessId,
-          };
-        }
-        // Always load godowns filtered by the resolved business — no cross-business bleed
-        try {
-          const bizGodowns = await (actor as any).getGodownsByBusiness(
-            resolvedBusinessId,
-          );
-          godownMapRef.current = {};
-          setGodowns((bizGodowns as any[]).map((g: any) => g.name));
-          for (const g of bizGodowns as any[]) {
-            godownMapRef.current[g.name] = {
-              id: g.id,
-              businessId: g.businessId,
-            };
-          }
-        } catch {
-          // On error leave godowns empty — don't show B1 godowns to B2 users
-          setGodowns([]);
-          godownMapRef.current = {};
-        }
-        // Load categories per business — no fallback to global to prevent cross-business bleed
-        try {
-          const bizCats = await (actor as any).getCategoriesByBusiness(
-            resolvedBusinessId,
-          );
-          categoryMapRef.current = {};
-          if ((bizCats as BackendCategory[]).length > 0) {
-            setCategories(
-              (bizCats as BackendCategory[]).map(fromBackendCategory),
-            );
-            categoryMapRef.current = {};
-            for (const c of bizCats as BackendCategory[]) {
-              categoryMapRef.current[c.name] = {
-                id: c.id,
-                subCategories: c.subCategories,
-              };
-            }
-          } else {
-            setCategories([]);
-            categoryMapRef.current = {};
-          }
-        } catch {
-          // On error leave categories empty — no cross-business fallback
-          setCategories([]);
-          categoryMapRef.current = {};
-        }
-        if (backendPrefixes.length > 0) {
-          setBiltyPrefixes(backendPrefixes.map((p) => p.prefix));
-          for (const p of backendPrefixes) {
-            biltyPrefixIdMapRef.current[p.prefix] = p.id;
-          }
-        }
-        if (backendTrackers.length > 0) {
-          setTransportTracking(
-            Object.fromEntries(
-              backendTrackers.map((t) => [t.transport, t.trackingUrl]),
-            ),
-          );
-          for (const t of backendTrackers) {
-            transportTrackerIdMapRef.current[t.transport] = t.id;
-          }
-        }
-
-        // Fetch transactional data using the businessId resolved above (no state timing issue)
-        const [
-          backendTransit,
-          backendQueue,
-          backendInwardSaved,
-          backendInventory,
-          backendDeliveries,
-          backendTxHistory,
-          backendTransfers,
-        ] = await Promise.all([
-          (actor as any).getTransitEntries(resolvedBusinessId),
-          (actor as any).getQueueEntries(resolvedBusinessId),
-          (actor as any).getInwardSaved(resolvedBusinessId),
-          (actor as any).getInventory(resolvedBusinessId),
-          (actor as any).getDeliveries(resolvedBusinessId),
-          (actor as any).getTxHistory(resolvedBusinessId),
-          (actor as any).getTransfers(resolvedBusinessId),
-        ]);
-        const transitGoodsData = (backendTransit as BackendTransitEntry[]).map(
-          fromBackendTransit,
-        );
-        setTransitGoods(transitGoodsData);
-        transitGoodsRef.current = transitGoodsData;
-
-        const pendingParcelsData = (backendQueue as BackendQueueEntry[])
-          .filter((e) => !e.delivered)
-          .map(fromBackendQueue);
-        setPendingParcels(pendingParcelsData);
-        pendingParcelsRef.current = pendingParcelsData;
-
-        const inwardSavedData = (
-          backendInwardSaved as BackendInwardSavedEntry[]
-        ).map(fromBackendInwardSaved);
-        setInwardSaved(inwardSavedData);
-        inwardSavedRef.current = inwardSavedData;
-
-        const invMap: Record<string, InventoryItem> = {};
-        for (const e of backendInventory as BackendInventoryItem[]) {
-          const [k, v] = fromBackendInventory(e);
-          invMap[k] = v;
-        }
-        setInventory(invMap);
-        inventoryRef.current = invMap;
-
-        const deliveries = (backendDeliveries as DeliveryEntry[]).map(
-          fromBackendDelivery,
-        );
-        setDeliveryRecords(deliveries);
-        setDeliveredBilties(
-          deliveries
-            .filter((d) => d.type === "QUEUE" && d.biltyNo)
-            .map((d) => d.biltyNo as string),
-        );
-        const transactionsData = (backendTxHistory as TxRecord[]).map(
-          fromBackendTxRecord,
-        );
-        setTransactions(transactionsData);
-        transactionsRef.current = transactionsData;
-
-        setTransfers(backendTransfers as TransferEntry[]);
-
-        // Load app settings (fieldLabels, requiredFields, etc.) from Motoko
-        try {
-          const settingsJson = await (actor as any).getAppSettings();
-          if (settingsJson && settingsJson !== "{}") {
-            const settings = JSON.parse(settingsJson);
-            if (settings.fieldLabels) setFieldLabels(settings.fieldLabels);
-            if (settings.requiredFields)
-              setRequiredFields(settings.requiredFields);
-            if (settings.fieldOrder) setFieldOrder(settings.fieldOrder);
-            if (settings.fieldTypes) setFieldTypes(settings.fieldTypes);
-            if (settings.fieldComboOptions)
-              setFieldComboOptions(settings.fieldComboOptions);
-          }
-        } catch (_e) {
-          // settings load failure is non-critical
-        }
-        isInitialLoadDoneRef.current = true;
-        prevBusinessIdRef.current = resolvedBusinessId;
-        setIsDataLoading(false);
-      } catch (e) {
-        isInitialLoadDoneRef.current = true;
-        prevBusinessIdRef.current = "b1";
-        console.error("Failed to load data from backend:", e);
-        showNotification(
-          `Failed to load data: ${e instanceof Error ? e.message : String(e)}`,
-          "error",
-        );
-        setIsDataLoading(false);
-      }
-    })();
-  }, [actor, dataLoadVersion]);
-
-  // Reload ALL business-specific data when active business changes (after initial load)
-  useEffect(() => {
-    if (!actor || !activeBusinessId || !isInitialLoadDoneRef.current) return;
-    setIsDataLoading(true);
-    (async () => {
-      // Capture the last known-good business BEFORE the async switch begins
-      // lastGoodBusinessId no longer used (we keep user on attempted business on failure)
-      let step = "fetching";
-      // Clear state immediately so stale B1 data doesn't show during B2 load
+  // Shared loader: fetches all 9 business-specific data sources and sets state
+  const loadBusinessData = useCallback(
+    async (bizId: string): Promise<void> => {
+      if (!actor) return;
       setCategories([]);
       setGodowns([]);
+      let step = "fetching";
       try {
         const [
           bizGodowns,
@@ -897,35 +662,31 @@ export default function App() {
           backendTxHistory,
           backendTransfers,
         ] = await Promise.all([
-          (actor as any).getGodownsByBusiness(activeBusinessId),
-          (actor as any).getCategoriesByBusiness(activeBusinessId),
-          (actor as any).getTransitEntries(activeBusinessId),
-          (actor as any).getQueueEntries(activeBusinessId),
-          (actor as any).getInwardSaved(activeBusinessId),
-          (actor as any).getInventory(activeBusinessId),
-          (actor as any).getDeliveries(activeBusinessId),
-          (actor as any).getTxHistory(activeBusinessId),
-          (actor as any).getTransfers(activeBusinessId),
+          (actor as any).getGodownsByBusiness(bizId),
+          (actor as any).getCategoriesByBusiness(bizId),
+          (actor as any).getTransitEntries(bizId),
+          (actor as any).getQueueEntries(bizId),
+          (actor as any).getInwardSaved(bizId),
+          (actor as any).getInventory(bizId),
+          (actor as any).getDeliveries(bizId),
+          (actor as any).getTxHistory(bizId),
+          (actor as any).getTransfers(bizId),
         ]);
-
-        // Godowns — clear stale entries before loading business-specific ones
         step = "godowns";
         godownMapRef.current = {};
         const godownNames = (bizGodowns as any[]).map((g: any) => g.name);
         setGodowns(godownNames);
-        saveBizCache("godowns", activeBusinessId, godownNames);
+        saveBizCache("godowns", bizId, godownNames);
         for (const g of bizGodowns as any[]) {
           godownMapRef.current[g.name] = { id: g.id, businessId: g.businessId };
         }
-
-        // Categories
         step = "categories";
         if ((bizCats as unknown[]).length > 0) {
           const mappedCats = (bizCats as unknown[]).map(
             fromBackendCategory as (c: unknown) => Category,
           );
           setCategories(mappedCats);
-          saveBizCache("categories", activeBusinessId, mappedCats);
+          saveBizCache("categories", bizId, mappedCats);
           const newMap: Record<
             string,
             { id: string; subCategories: BackendSubCategory[] }
@@ -936,11 +697,9 @@ export default function App() {
           categoryMapRef.current = newMap;
         } else {
           setCategories([]);
-          saveBizCache("categories", activeBusinessId, []);
+          saveBizCache("categories", bizId, []);
           categoryMapRef.current = {};
         }
-
-        // Transit
         step = "transit";
         const transitGoodsData = (
           backendTransit as BackendTransitEntry[]
@@ -953,8 +712,6 @@ export default function App() {
         });
         setTransitGoods(transitGoodsData);
         transitGoodsRef.current = transitGoodsData;
-
-        // Queue
         step = "queue";
         const pendingParcelsData = (backendQueue as BackendQueueEntry[])
           .filter((e) => !e.delivered)
@@ -967,8 +724,6 @@ export default function App() {
           });
         setPendingParcels(pendingParcelsData);
         pendingParcelsRef.current = pendingParcelsData;
-
-        // InwardSaved
         step = "inwardSaved";
         const inwardSavedData = (
           backendInwardSaved as BackendInwardSavedEntry[]
@@ -981,8 +736,6 @@ export default function App() {
         });
         setInwardSaved(inwardSavedData);
         inwardSavedRef.current = inwardSavedData;
-
-        // Inventory
         step = "inventory";
         const invMap: Record<string, InventoryItem> = {};
         for (const e of backendInventory as BackendInventoryItem[]) {
@@ -995,8 +748,6 @@ export default function App() {
         }
         setInventory(invMap);
         inventoryRef.current = invMap;
-
-        // Deliveries
         step = "deliveries";
         const deliveries = (backendDeliveries as DeliveryEntry[]).flatMap(
           (e) => {
@@ -1013,8 +764,6 @@ export default function App() {
             .filter((d) => d.type === "QUEUE" && d.biltyNo)
             .map((d) => d.biltyNo as string),
         );
-
-        // Transactions
         step = "transactions";
         const transactionsData = (backendTxHistory as TxRecord[]).flatMap(
           (e) => {
@@ -1027,20 +776,12 @@ export default function App() {
         );
         setTransactions(transactionsData);
         transactionsRef.current = transactionsData;
-
-        // Transfers
         step = "transfers";
         setTransfers(backendTransfers as TransferEntry[]);
-
-        // Mark this business as the last successfully loaded one
-        prevBusinessIdRef.current = activeBusinessId;
+        prevBusinessIdRef.current = bizId;
       } catch (e) {
-        console.error("Business switch failed at step:", step, e);
-        // Don't revert the dropdown — keep user on attempted business, load from cache
-        const cachedCats = loadBizCache<Category[]>(
-          "categories",
-          activeBusinessId,
-        );
+        console.error("loadBusinessData failed at step:", step, e);
+        const cachedCats = loadBizCache<Category[]>("categories", bizId);
         if (cachedCats && cachedCats.length > 0) {
           setCategories(cachedCats);
           categoryMapRef.current = {};
@@ -1054,10 +795,7 @@ export default function App() {
           setCategories([]);
           categoryMapRef.current = {};
         }
-        const cachedGodowns = loadBizCache<string[]>(
-          "godowns",
-          activeBusinessId,
-        );
+        const cachedGodowns = loadBizCache<string[]>("godowns", bizId);
         if (cachedGodowns && cachedGodowns.length > 0) {
           setGodowns(cachedGodowns);
         } else {
@@ -1069,17 +807,101 @@ export default function App() {
             "Could not load all data for this business. Some data shown from cache. Retry when connection improves.",
           type: "error",
         });
-      } finally {
+      }
+    },
+    [actor],
+  );
+
+  // Load all data from backend on actor ready (config + transactional in one pass)
+  useEffect(() => {
+    if (!actor) return;
+    void dataLoadVersion; // trigger reload after login seeds canister
+    setIsDataLoading(true);
+    (async () => {
+      try {
+        const [
+          backendUsers,
+          backendBusinesses,
+          backendPrefixes,
+          backendTrackers,
+        ] = await Promise.all([
+          actor.getUsers(),
+          actor.getBusinesses(),
+          actor.getBiltyPrefixes(),
+          actor.getTransportTrackers(),
+        ]);
+        if (backendUsers.length > 0) {
+          setUsers(backendUsers.map(fromBackendUser) as AppUser[]);
+        }
+        let resolvedBusinessId = "b1";
+        if (backendBusinesses.length > 0) {
+          setBusinesses(backendBusinesses);
+          resolvedBusinessId = backendBusinesses[0].id;
+          for (const b of backendBusinesses) {
+            businessMapRef.current[b.name] = b.id;
+          }
+        }
+        setActiveBusinessId(resolvedBusinessId);
+        if (backendPrefixes.length > 0) {
+          setBiltyPrefixes(backendPrefixes.map((p) => p.prefix));
+          for (const p of backendPrefixes) {
+            biltyPrefixIdMapRef.current[p.prefix] = p.id;
+          }
+        }
+        if (backendTrackers.length > 0) {
+          setTransportTracking(
+            Object.fromEntries(
+              backendTrackers.map((t) => [t.transport, t.trackingUrl]),
+            ),
+          );
+          for (const t of backendTrackers) {
+            transportTrackerIdMapRef.current[t.transport] = t.id;
+          }
+        }
+        // Load app settings (fieldLabels, requiredFields, etc.) from Motoko
+        try {
+          const settingsJson = await (actor as any).getAppSettings();
+          if (settingsJson && settingsJson !== "{}") {
+            const settings = JSON.parse(settingsJson);
+            if (settings.fieldLabels) setFieldLabels(settings.fieldLabels);
+            if (settings.requiredFields)
+              setRequiredFields(settings.requiredFields);
+            if (settings.fieldOrder) setFieldOrder(settings.fieldOrder);
+            if (settings.fieldTypes) setFieldTypes(settings.fieldTypes);
+            if (settings.fieldComboOptions)
+              setFieldComboOptions(settings.fieldComboOptions);
+          }
+        } catch (_e) {
+          // settings load failure is non-critical
+        }
+        // Load all business-specific data (godowns, categories, transactions, etc.)
+        await loadBusinessData(resolvedBusinessId);
+        isInitialLoadDoneRef.current = true;
+        prevBusinessIdRef.current = resolvedBusinessId;
+        setIsDataLoading(false);
+      } catch (e) {
+        isInitialLoadDoneRef.current = true;
+        prevBusinessIdRef.current = "b1";
+        console.error("Failed to load data from backend:", e);
+        showNotification(
+          `Failed to load data: ${e instanceof Error ? e.message : String(e)}`,
+          "error",
+        );
         setIsDataLoading(false);
       }
     })();
-  }, [activeBusinessId, actor]);
-
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [actor, dataLoadVersion, loadBusinessData]);
+  // Reload ALL business-specific data when active business changes (after initial load)
+  useEffect(() => {
+    if (!actor || !activeBusinessId || !isInitialLoadDoneRef.current) return;
+    setIsDataLoading(true);
+    loadBusinessData(activeBusinessId).finally(() => setIsDataLoading(false));
+  }, [activeBusinessId, actor, loadBusinessData]);
   // Keep ref in sync with state so setters always use current business
   useEffect(() => {
     activeBusinessIdRef.current = activeBusinessId;
   }, [activeBusinessId]);
-
   // Synced setters
   const setUsersWithBackend: React.Dispatch<React.SetStateAction<AppUser[]>> = (
     updater,
@@ -1134,7 +956,6 @@ export default function App() {
         );
     }
   };
-
   const setBusinessesWithBackend: React.Dispatch<
     React.SetStateAction<Business[]>
   > = (updater) => {
@@ -1162,7 +983,6 @@ export default function App() {
     for (const b of updated)
       backendSave(actor.updateBusiness(b.id, b.name), "updateBusiness");
   };
-
   const setGodownsWithBackend: React.Dispatch<
     React.SetStateAction<string[]>
   > = (updater) => {
@@ -1192,7 +1012,6 @@ export default function App() {
       if (mapping) backendSave(actor.deleteGodown(mapping.id), "deleteGodown");
     }
   };
-
   const setCategoriesWithBackend: React.Dispatch<
     React.SetStateAction<Category[]>
   > = (updater) => {
@@ -1261,7 +1080,6 @@ export default function App() {
         backendSave(actor.addSubCategory(catId, s), "addSubCategory");
     }
   };
-
   const setBiltyPrefixesWithBackend: React.Dispatch<
     React.SetStateAction<string[]>
   > = (updater) => {
@@ -1283,7 +1101,6 @@ export default function App() {
       backendSave(actor.deleteBiltyPrefix(id), "deleteBiltyPrefix");
     }
   };
-
   const setTransportTrackingWithBackend: React.Dispatch<
     React.SetStateAction<Record<string, string>>
   > = (updater) => {
@@ -1322,7 +1139,6 @@ export default function App() {
       );
     }
   };
-
   // Backend login helper
   const loginViaBackend = actor
     ? async (username: string, password: string): Promise<AppUser | null> => {
@@ -1338,7 +1154,6 @@ export default function App() {
         }
       }
     : undefined;
-
   useEffect(() => {
     const style = document.createElement("style");
     style.innerHTML = `
@@ -1352,12 +1167,10 @@ export default function App() {
       document.head.removeChild(style);
     };
   }, []);
-
   useEffect(() => {
     if (currentUser?.role === "supplier" && activeTab !== "transit")
       setActiveTab("transit");
   }, [currentUser, activeTab]);
-
   // Save app settings to Motoko whenever they change
   useEffect(() => {
     if (!actor) return;
@@ -1384,7 +1197,6 @@ export default function App() {
     fieldTypes,
     fieldComboOptions,
   ]);
-
   // Morning backup reminder for admin
   useEffect(() => {
     if (currentUser?.role === "admin") {
@@ -1402,12 +1214,10 @@ export default function App() {
       }
     }
   }, [currentUser]);
-
   const showNotification = (message: string, type = "success") => {
     setNotification({ message, type });
     setTimeout(() => setNotification(null), 3500);
   };
-
   // Wrapper for backend saves — shows a persistent error notification on failure
   const backendSave = (promise: Promise<unknown>, label = "Save") => {
     promise.catch((_e) => {
@@ -1418,7 +1228,6 @@ export default function App() {
       );
     });
   };
-
   const generateSku = (
     category: string,
     itemName: string,
@@ -1437,7 +1246,6 @@ export default function App() {
     );
     return businessId ? `${businessId}_${baseSku}` : baseSku;
   };
-
   const setTransitGoodsWithBackend: React.Dispatch<
     React.SetStateAction<TransitRecord[]>
   > = (updater) => {
@@ -1471,7 +1279,6 @@ export default function App() {
         "updateTransitEntry",
       );
   };
-
   const setPendingParcelsWithBackend: React.Dispatch<
     React.SetStateAction<PendingParcel[]>
   > = (updater) => {
@@ -1505,7 +1312,6 @@ export default function App() {
         "updateQueueEntry",
       );
   };
-
   const setInwardSavedWithBackend: React.Dispatch<
     React.SetStateAction<InwardSavedEntry[]>
   > = (updater) => {
@@ -1539,7 +1345,6 @@ export default function App() {
         "updateInwardSaved",
       );
   };
-
   const setInventoryWithBackend: React.Dispatch<
     React.SetStateAction<Record<string, InventoryItem>>
   > = (updater) => {
@@ -1581,7 +1386,6 @@ export default function App() {
         "updateInventoryItem",
       );
   };
-
   const updateStock = (
     sku: string,
     details: Partial<InventoryItem>,
@@ -1617,7 +1421,6 @@ export default function App() {
       };
     });
   };
-
   const exportDatabase = async () => {
     showNotification("Preparing backup — fetching latest data...", "info");
     let freshInventory = inventory;
@@ -1630,7 +1433,6 @@ export default function App() {
     let freshBusinesses = businesses;
     let freshBiltyPrefixes = biltyPrefixes;
     let freshInwardSaved: InwardSavedEntry[] = inwardSaved;
-
     if (actor) {
       try {
         const allBusinessIds = businesses.map((b) => b.id);
@@ -1638,14 +1440,12 @@ export default function App() {
           backendUsers,
           backendBusinessesFresh,
           backendGodowns,
-          backendCats,
           backendPrefixes,
           ...perBusinessResults
         ] = await Promise.all([
           actor.getUsers(),
           actor.getBusinesses(),
           actor.getGodowns(),
-          actor.getCategories(),
           actor.getBiltyPrefixes(),
           ...allBusinessIds.flatMap((bId) => [
             (actor as any).getInventory(bId),
@@ -1653,7 +1453,6 @@ export default function App() {
             (actor as any).getTransitEntries(bId),
           ]),
         ]);
-
         freshUsers = backendUsers.map(fromBackendUser) as AppUser[];
         freshBusinesses = backendBusinessesFresh.map((b: any) => ({
           id: b.id,
@@ -1664,9 +1463,19 @@ export default function App() {
           name: g.name,
           businessId: g.businessId || "b1",
         }));
-        freshCategories = backendCats.map(fromBackendCategory);
         freshBiltyPrefixes = backendPrefixes.map((p: any) => p.prefix);
-
+        // Fetch categories per business to preserve businessId
+        const allCatsPerBusiness = await Promise.all(
+          allBusinessIds.map((bId) =>
+            (actor as any).getCategoriesByBusiness(bId),
+          ),
+        );
+        freshCategories = allCatsPerBusiness.flatMap((cats: any[], i) =>
+          (cats as BackendCategory[]).map((c) => ({
+            ...fromBackendCategory(c),
+            businessId: allBusinessIds[i],
+          })),
+        );
         const invMap: Record<string, InventoryItem> = {};
         freshTransactions = [];
         freshTransitGoods = [];
@@ -1675,7 +1484,8 @@ export default function App() {
           const txs = perBusinessResults[i * 3 + 1] as any[];
           const transit = perBusinessResults[i * 3 + 2] as any[];
           for (const item of inv) {
-            invMap[(item as any).id] = item as InventoryItem;
+            const [ik, iv] = fromBackendInventory(item as BackendInventoryItem);
+            invMap[ik] = iv;
           }
           freshTransactions = [
             ...freshTransactions,
@@ -1687,7 +1497,6 @@ export default function App() {
           ];
         }
         freshInventory = invMap;
-
         // Fetch inwardSaved from backend
         freshInwardSaved = [];
         const inwardSavedResults = await Promise.all(
@@ -1708,7 +1517,6 @@ export default function App() {
         );
       }
     }
-
     const data = {
       inventory: freshInventory,
       transactions: freshTransactions,
@@ -1741,7 +1549,6 @@ export default function App() {
     link.click();
     showNotification("Backup downloaded successfully");
   };
-
   const importDatabase = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1750,7 +1557,6 @@ export default function App() {
     reader.onload = async (evt) => {
       try {
         const data = JSON.parse(evt.target?.result as string);
-
         // 1. Restore local state immediately
         if (data.inventory) setInventory(data.inventory);
         if (data.transactions) setTransactions(data.transactions);
@@ -1770,19 +1576,16 @@ export default function App() {
         if (data.deliveryRecords) setDeliveryRecords(data.deliveryRecords);
         if (data.inwardSaved)
           setInwardSaved(data.inwardSaved as InwardSavedEntry[]);
-
         if (!actor) {
           showNotification(
             "System Restore Complete (local only — reconnect to sync backend)",
           );
           return;
         }
-
         showNotification("Syncing restore to backend — please wait...", "info");
         // Use a local const to avoid stale React state closure
         const restoreBizId =
           (data.activeBusinessId as string) || activeBusinessId;
-
         // 2. Save app settings to Motoko
         const settings = {
           fieldLabels: data.fieldLabels || {},
@@ -1792,7 +1595,6 @@ export default function App() {
           fieldComboOptions: data.fieldComboOptions || {},
         };
         await (actor as any).saveAppSettings(JSON.stringify(settings));
-
         // 3. Clear existing categories and restore from backup
         const existingCats = await (actor as any).getCategories();
         await Promise.all(
@@ -1818,7 +1620,6 @@ export default function App() {
             }
           }
         }
-
         // 4. Restore inventory (upserts by ID — safe to call repeatedly)
         if (data.inventory) {
           await Promise.all(
@@ -1830,7 +1631,6 @@ export default function App() {
             ),
           );
         }
-
         // 5. Clear & restore transit entries
         const bizIds: string[] = (data.businesses || businesses).map(
           (b: any) => b.id || b,
@@ -1852,7 +1652,6 @@ export default function App() {
             ),
           );
         }
-
         // 6. Clear & restore transaction history
         const existingTxs = (
           await Promise.all(
@@ -1869,7 +1668,6 @@ export default function App() {
             ),
           );
         }
-
         // 7. Clear & restore inward saved
         const existingInward = (
           await Promise.all(
@@ -1889,7 +1687,6 @@ export default function App() {
             ),
           );
         }
-
         // 7b. Restore inward saved records
         if (
           data.inwardSaved &&
@@ -1902,7 +1699,6 @@ export default function App() {
             ),
           );
         }
-
         // 8. Restore godowns per business
         if (
           data.godowns &&
@@ -1916,19 +1712,18 @@ export default function App() {
             ),
           );
           await Promise.all(
-            (data.godowns as any[]).map((godown: any) => {
+            (data.godowns as any[]).map((godown: any, _gIdx: number) => {
               // Support both old format (string) and new format ({name, businessId})
               const name = typeof godown === "string" ? godown : godown.name;
               const bizId =
                 typeof godown === "string"
                   ? restoreBizId
                   : godown.businessId || restoreBizId;
-              const id = `${name.toLowerCase().replace(/\s+/g, "-")}-restored-${Date.now()}`;
+              const id = `${name.toLowerCase().replace(/\s+/g, "-")}-${bizId}-${_gIdx}-${Date.now()}`;
               return (actor as any).addGodown(id, name, bizId);
             }),
           );
         }
-
         // 9. Restore delivery records
         if (
           data.deliveryRecords &&
@@ -1958,10 +1753,15 @@ export default function App() {
             ),
           );
         }
-
         showNotification(
           "System Restore Complete — all data synced to backend",
         );
+        // Re-fetch from Motoko to confirm all writes landed
+        try {
+          await loadBusinessData(activeBusinessIdRef.current);
+        } catch (_) {
+          // non-critical — data was restored but re-fetch failed
+        }
       } catch (err) {
         console.error("Restore error:", err);
         showNotification(
@@ -1972,7 +1772,6 @@ export default function App() {
     };
     reader.readAsText(file);
   };
-
   const allSuppliers = useMemo(() => {
     const fromTransit = transitGoods
       .filter((r) => r.businessId === activeBusinessId)
@@ -2016,7 +1815,6 @@ export default function App() {
     activeBusinessId,
     currentUser,
   ]);
-
   const allTransporters = useMemo(() => {
     const fromTransit = transitGoods
       .filter((r) => r.businessId === activeBusinessId)
@@ -2060,7 +1858,6 @@ export default function App() {
     activeBusinessId,
     currentUser,
   ]);
-
   if (
     (!currentUser && !actor) ||
     (currentUser && !actor) ||
@@ -2076,7 +1873,6 @@ export default function App() {
         </div>
       </div>
     );
-
   if (!currentUser)
     return (
       <>
@@ -2098,10 +1894,8 @@ export default function App() {
         )}
       </>
     );
-
   const activeBusiness =
     businesses.find((b) => b.id === activeBusinessId) || businesses[0];
-
   return (
     <div className="min-h-screen bg-gray-50 text-gray-800 font-sans pb-24 md:pb-0 md:pl-64 flex flex-col">
       {/* Mobile Header */}
@@ -2163,7 +1957,6 @@ export default function App() {
           </button>
         </div>
       </header>
-
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex flex-col w-64 bg-white border-r h-screen fixed left-0 top-0 shadow-sm z-20">
         <div className="p-8 border-b">
@@ -2351,7 +2144,6 @@ export default function App() {
           </p>
         </div>
       </aside>
-
       {/* Main Content */}
       <main className="p-4 md:p-10 max-w-6xl mx-auto flex-1 w-full relative">
         {activeTab === "dashboard" && currentUser.role !== "supplier" && (
@@ -2569,6 +2361,14 @@ export default function App() {
           <SalesRecordTab
             transactions={transactions}
             activeBusinessId={activeBusinessId}
+            isAdmin={true}
+            onEditTransaction={(updated) =>
+              setTransactionsWithBackend((prev: Transaction[]) =>
+                prev.map((t: Transaction) =>
+                  t.id === updated.id ? updated : t,
+                ),
+              )
+            }
           />
         )}
         {activeTab === "settings" && currentUser.role === "admin" && (
@@ -2628,7 +2428,6 @@ export default function App() {
             setItemUnitOverrides={setItemUnitOverrides}
           />
         )}
-
         {/* Item History Panel */}
         <ItemHistoryPanel
           sku={selectedHistoryItem}
@@ -2638,7 +2437,6 @@ export default function App() {
           onClose={() => setSelectedHistoryItem(null)}
           inwardSaved={inwardSaved}
         />
-
         {/* Confirm Dialog */}
         {confirmDialog && (
           <div className="fixed inset-0 bg-gray-900/60 z-[100] flex items-center justify-center p-4">
@@ -2671,7 +2469,6 @@ export default function App() {
             </div>
           </div>
         )}
-
         {/* Prompt Dialog */}
         {promptDialog && (
           <div className="fixed inset-0 bg-gray-900/60 z-[100] flex items-center justify-center p-4">
@@ -2715,7 +2512,6 @@ export default function App() {
           </div>
         )}
       </main>
-
       {/* Mobile Bottom Nav */}
       <nav className="md:hidden fixed bottom-0 left-0 w-full bg-white border-t flex overflow-x-auto scrollbar-hide items-center p-2 z-10 gap-0.5">
         {currentUser.role !== "supplier" && (
@@ -2831,7 +2627,6 @@ export default function App() {
           </>
         )}
       </nav>
-
       {/* Notification */}
       {notification && (
         <div className="fixed top-20 md:top-6 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-2 px-6 py-4 rounded-3xl shadow-2xl animate-fade-in-down w-[90%] max-w-sm text-white font-black uppercase text-[10px] tracking-widest bg-gray-900 border border-gray-700">
