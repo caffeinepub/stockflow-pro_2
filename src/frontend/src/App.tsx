@@ -18,7 +18,13 @@ import {
   UserCheck,
   Warehouse,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type {
   Category as BackendCategory,
   Godown as BackendGodown,
@@ -295,7 +301,7 @@ function fromBackendInventory(
     attributes: attrs,
     shop: Number(e.shopQty),
     godowns: Object.fromEntries(
-      e.godownQtys.map((g: GodownQty) => [g.godownId, Number(g.qty)]),
+      (e.godownQtys || []).map((g: GodownQty) => [g.godownId, Number(g.qty)]),
     ),
     saleRate: e.saleRate,
     purchaseRate: e.purchaseRate,
@@ -405,6 +411,42 @@ const loadBizCache = <T,>(key: string, businessId: string): T | null => {
     return null;
   }
 };
+class TabErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error: string }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: "" };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error: error.message };
+  }
+  componentDidCatch(error: Error) {
+    console.error("Tab render error:", error);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex flex-col items-center justify-center py-20 text-center gap-4">
+          <p className="text-red-600 font-bold text-lg">
+            Something went wrong loading this tab.
+          </p>
+          <p className="text-gray-500 text-sm">{this.state.error}</p>
+          <button
+            className="px-4 py-2 bg-blue-600 text-white rounded-xl font-bold text-sm"
+            type="button"
+            onClick={() => this.setState({ hasError: false, error: "" })}
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   const { actor } = useActor();
   const [isDataLoading, setIsDataLoading] = useState(false);
@@ -2146,371 +2188,375 @@ export default function App() {
       </aside>
       {/* Main Content */}
       <main className="p-4 md:p-10 max-w-6xl mx-auto flex-1 w-full relative">
-        {activeTab === "dashboard" && currentUser.role !== "supplier" && (
-          <DashboardTab
+        <TabErrorBoundary>
+          {activeTab === "dashboard" && currentUser.role !== "supplier" && (
+            <DashboardTab
+              inventory={inventory}
+              minStockThreshold={minStockThreshold}
+              activeBusinessId={activeBusinessId}
+              transactions={transactions}
+              onItemClick={(sku) => setSelectedHistoryItem(sku)}
+              thresholdExcludedItems={thresholdExcludedItems}
+              categoryUnits={categoryUnits}
+              itemUnitOverrides={itemUnitOverrides}
+              inwardSaved={inwardSaved}
+            />
+          )}
+          {activeTab === "transit" && (
+            <TransitTab
+              transitGoods={transitGoods}
+              setTransitGoods={setTransitGoodsWithBackend}
+              biltyPrefixes={biltyPrefixes}
+              showNotification={showNotification}
+              currentUser={currentUser}
+              customColumns={customColumns.transit}
+              setConfirmDialog={setConfirmDialog}
+              activeBusinessId={activeBusinessId}
+              allTransitGoods={transitGoods}
+              categories={categories}
+              transportTracking={transportTracking}
+              setMoveToQueueData={setMoveToQueueData}
+              setActiveTabFromTransit={setActiveTab}
+              pendingParcels={pendingParcels}
+              transactions={transactions}
+              inwardSaved={inwardSaved}
+              fieldLabels={fieldLabels}
+              requiredFields={requiredFields}
+              supplierOptions={allSuppliers}
+              transportOptions={allTransporters}
+            />
+          )}
+          {activeTab === "warehouse" && currentUser.role !== "supplier" && (
+            <WarehouseTab
+              pendingParcels={pendingParcels}
+              setPendingParcels={setPendingParcelsWithBackend}
+              setOpeningParcel={setOpeningParcel}
+              setActiveTab={setActiveTab}
+              setTransitGoods={setTransitGoodsWithBackend}
+              inventory={inventory}
+              biltyPrefixes={biltyPrefixes}
+              customColumns={customColumns.warehouse}
+              showNotification={showNotification}
+              setConfirmDialog={setConfirmDialog}
+              activeBusinessId={activeBusinessId}
+              transportTracking={transportTracking}
+              categories={categories}
+              transitGoods={transitGoods}
+              moveToQueueData={moveToQueueData}
+              clearMoveToQueueData={() => setMoveToQueueData(null)}
+              existingQueueBiltyNos={pendingParcels
+                .filter(
+                  (p) => !p.businessId || p.businessId === activeBusinessId,
+                )
+                .map((p) => p.biltyNo)}
+              transactions={transactions}
+              inwardSaved={inwardSaved}
+              fieldLabels={fieldLabels}
+              supplierOptions={allSuppliers}
+              transportOptions={allTransporters}
+            />
+          )}
+          {activeTab === "inward" && currentUser.role !== "supplier" && (
+            <InwardTab
+              inventory={inventory}
+              categories={categories}
+              updateStock={updateStock}
+              setTransactions={setTransactionsWithBackend as any}
+              showNotification={showNotification}
+              currentUser={currentUser}
+              generateSku={generateSku}
+              openingParcel={openingParcel}
+              setOpeningParcel={setOpeningParcel}
+              pendingParcels={pendingParcels}
+              setPendingParcels={setPendingParcelsWithBackend}
+              transitGoods={transitGoods}
+              setTransitGoods={setTransitGoodsWithBackend}
+              godowns={godowns}
+              biltyPrefixes={biltyPrefixes}
+              customColumns={customColumns.inward}
+              activeBusinessId={activeBusinessId}
+              transactions={transactions}
+              setInventory={setInventoryWithBackend}
+              setConfirmDialog={setConfirmDialog}
+              setInwardSaved={setInwardSavedWithBackend}
+              inwardSaved={inwardSaved}
+              fieldLabels={fieldLabels}
+              requiredFields={requiredFields}
+              deliveredBilties={deliveredBilties}
+            />
+          )}
+          {activeTab === "opening" && currentUser.role === "admin" && (
+            <OpeningStockTab
+              inventory={inventory}
+              setInventory={setInventoryWithBackend}
+              categories={categories}
+              godowns={godowns}
+              setTransactions={setTransactionsWithBackend as any}
+              setInwardSaved={setInwardSavedWithBackend as any}
+              actor={actor}
+              activeBusinessId={activeBusinessId}
+              currentUser={currentUser}
+              showNotification={showNotification}
+            />
+          )}
+          {activeTab === "transfer" && currentUser.role !== "supplier" && (
+            <TransferTab
+              inventory={inventory}
+              updateStock={updateStock}
+              showNotification={showNotification}
+              godowns={godowns}
+              activeBusinessId={activeBusinessId}
+              setTransactions={setTransactionsWithBackend as any}
+              currentUser={currentUser}
+              actor={actor}
+              transfers={_transfers}
+              setTransfers={setTransfers}
+              onInventoryRefresh={refreshInventory}
+              requiredFields={requiredFields}
+              users={users}
+            />
+          )}
+          {activeTab === "sales" && currentUser.role === "admin" && (
+            <SalesTab
+              inventory={inventory}
+              updateStock={updateStock}
+              setTransactions={setTransactionsWithBackend as any}
+              showNotification={showNotification}
+              currentUser={currentUser}
+              godowns={godowns}
+              activeBusinessId={activeBusinessId}
+              categories={categories}
+              actor={actor}
+              requiredFields={requiredFields}
+            />
+          )}
+          {activeTab === "history" && currentUser.role !== "supplier" && (
+            <HistoryTab
+              transactions={transactions}
+              setConfirmDialog={setConfirmDialog}
+              setTransactions={setTransactionsWithBackend as any}
+              activeBusinessId={activeBusinessId}
+              currentUser={currentUser}
+              inventory={inventory}
+              transitGoods={transitGoods}
+              pendingParcels={pendingParcels}
+              categories={categories}
+              godowns={godowns}
+              showNotification={showNotification}
+              inwardSaved={inwardSaved}
+              updateStock={updateStock}
+              setInwardSaved={setInwardSavedWithBackend as any}
+            />
+          )}
+          {activeTab === "inwardSaved" && currentUser.role !== "supplier" && (
+            <InwardSavedTab
+              inwardSaved={inwardSaved}
+              setInwardSaved={setInwardSavedWithBackend}
+              currentUser={currentUser}
+              transactions={transactions}
+              activeBusinessId={activeBusinessId}
+              showNotification={showNotification}
+              godowns={godowns}
+              inventory={inventory}
+              setInventory={setInventoryWithBackend as any}
+            />
+          )}
+          {activeTab === "godownStock" && currentUser.role !== "supplier" && (
+            <GodownStockTab
+              inventory={inventory}
+              godowns={godowns}
+              activeBusinessId={activeBusinessId}
+            />
+          )}
+          {activeTab === "delivery" && currentUser.role !== "supplier" && (
+            <DeliveryTab
+              inventory={inventory}
+              setInventory={setInventoryWithBackend}
+              pendingParcels={pendingParcels}
+              setPendingParcels={setPendingParcelsWithBackend}
+              godowns={godowns}
+              categories={categories}
+              currentUser={currentUser}
+              activeBusinessId={activeBusinessId}
+              deliveryRecords={deliveryRecords}
+              setDeliveryRecords={setDeliveryRecords}
+              transactions={transactions}
+              setTransactions={setTransactionsWithBackend as any}
+              setInwardSaved={setInwardSavedWithBackend}
+              updateStock={updateStock}
+              showNotification={showNotification}
+              actor={actor}
+              onInventoryRefresh={refreshInventory}
+              onDeliveredBilty={(biltyNo) =>
+                setDeliveredBilties((prev) => [...new Set([...prev, biltyNo])])
+              }
+              requiredFields={requiredFields}
+              generateSku={generateSku}
+            />
+          )}
+          {activeTab === "analytics" && currentUser.role === "admin" && (
+            <AnalyticsTab
+              transactions={transactions}
+              inwardSaved={inwardSaved}
+              activeBusinessId={activeBusinessId}
+              godowns={godowns}
+            />
+          )}
+          {activeTab === "salesRecord" && currentUser.role === "admin" && (
+            <SalesRecordTab
+              transactions={transactions}
+              activeBusinessId={activeBusinessId}
+              isAdmin={true}
+              onEditTransaction={(updated) =>
+                setTransactionsWithBackend((prev: Transaction[]) =>
+                  prev.map((t: Transaction) =>
+                    t.id === updated.id ? updated : t,
+                  ),
+                )
+              }
+            />
+          )}
+          {activeTab === "settings" && currentUser.role === "admin" && (
+            <SettingsTab
+              initialSubTab={settingsSubTab}
+              users={users}
+              setUsers={setUsersWithBackend}
+              categories={categories}
+              setCategories={setCategoriesWithBackend}
+              customColumns={customColumns}
+              setCustomColumns={setCustomColumns}
+              exportDatabase={exportDatabase}
+              importDatabase={importDatabase}
+              showNotification={showNotification}
+              setPromptDialog={setPromptDialog}
+              setConfirmDialog={setConfirmDialog}
+              businesses={businesses}
+              setBusinesses={setBusinessesWithBackend}
+              activeBusinessId={activeBusinessId}
+              setActiveBusinessId={setActiveBusinessId}
+              inventory={inventory}
+              setInventory={setInventoryWithBackend}
+              godowns={godowns}
+              setGodowns={setGodownsWithBackend}
+              minStockThreshold={minStockThreshold}
+              setMinStockThreshold={setMinStockThreshold}
+              setTransactions={setTransactionsWithBackend as any}
+              currentUser={currentUser}
+              transportTracking={transportTracking}
+              setTransportTracking={setTransportTrackingWithBackend}
+              tabNames={tabNames}
+              setTabNames={setTabNames}
+              fieldLabels={fieldLabels}
+              setFieldLabels={setFieldLabels}
+              requiredFields={requiredFields}
+              setRequiredFields={setRequiredFields}
+              fieldOrder={fieldOrder}
+              setFieldOrder={setFieldOrder}
+              thresholdExcludedItems={thresholdExcludedItems}
+              setThresholdExcludedItems={setThresholdExcludedItems}
+              setTransitGoods={setTransitGoodsWithBackend}
+              setPendingParcels={setPendingParcelsWithBackend}
+              setInwardSaved={setInwardSavedWithBackend}
+              setDeliveryRecords={setDeliveryRecords}
+              setDeliveredBilties={setDeliveredBilties}
+              biltyPrefixes={biltyPrefixes}
+              setBiltyPrefixes={setBiltyPrefixesWithBackend}
+              fieldTypes={fieldTypes}
+              setFieldTypes={setFieldTypes}
+              fieldComboOptions={fieldComboOptions}
+              setFieldComboOptions={setFieldComboOptions}
+              customTabFields={customTabFields}
+              setCustomTabFields={setCustomTabFields}
+              categoryUnits={categoryUnits}
+              setCategoryUnits={setCategoryUnits}
+              itemUnitOverrides={itemUnitOverrides}
+              setItemUnitOverrides={setItemUnitOverrides}
+            />
+          )}
+          {/* Item History Panel */}
+          <ItemHistoryPanel
+            sku={selectedHistoryItem}
             inventory={inventory}
-            minStockThreshold={minStockThreshold}
-            activeBusinessId={activeBusinessId}
             transactions={transactions}
-            onItemClick={(sku) => setSelectedHistoryItem(sku)}
-            thresholdExcludedItems={thresholdExcludedItems}
-            categoryUnits={categoryUnits}
-            itemUnitOverrides={itemUnitOverrides}
+            activeBusinessId={activeBusinessId}
+            onClose={() => setSelectedHistoryItem(null)}
             inwardSaved={inwardSaved}
           />
-        )}
-        {activeTab === "transit" && (
-          <TransitTab
-            transitGoods={transitGoods}
-            setTransitGoods={setTransitGoodsWithBackend}
-            biltyPrefixes={biltyPrefixes}
-            showNotification={showNotification}
-            currentUser={currentUser}
-            customColumns={customColumns.transit}
-            setConfirmDialog={setConfirmDialog}
-            activeBusinessId={activeBusinessId}
-            allTransitGoods={transitGoods}
-            categories={categories}
-            transportTracking={transportTracking}
-            setMoveToQueueData={setMoveToQueueData}
-            setActiveTabFromTransit={setActiveTab}
-            pendingParcels={pendingParcels}
-            transactions={transactions}
-            inwardSaved={inwardSaved}
-            fieldLabels={fieldLabels}
-            requiredFields={requiredFields}
-            supplierOptions={allSuppliers}
-            transportOptions={allTransporters}
-          />
-        )}
-        {activeTab === "warehouse" && currentUser.role !== "supplier" && (
-          <WarehouseTab
-            pendingParcels={pendingParcels}
-            setPendingParcels={setPendingParcelsWithBackend}
-            setOpeningParcel={setOpeningParcel}
-            setActiveTab={setActiveTab}
-            setTransitGoods={setTransitGoodsWithBackend}
-            inventory={inventory}
-            biltyPrefixes={biltyPrefixes}
-            customColumns={customColumns.warehouse}
-            showNotification={showNotification}
-            setConfirmDialog={setConfirmDialog}
-            activeBusinessId={activeBusinessId}
-            transportTracking={transportTracking}
-            categories={categories}
-            transitGoods={transitGoods}
-            moveToQueueData={moveToQueueData}
-            clearMoveToQueueData={() => setMoveToQueueData(null)}
-            existingQueueBiltyNos={pendingParcels
-              .filter((p) => !p.businessId || p.businessId === activeBusinessId)
-              .map((p) => p.biltyNo)}
-            transactions={transactions}
-            inwardSaved={inwardSaved}
-            fieldLabels={fieldLabels}
-            supplierOptions={allSuppliers}
-            transportOptions={allTransporters}
-          />
-        )}
-        {activeTab === "inward" && currentUser.role !== "supplier" && (
-          <InwardTab
-            inventory={inventory}
-            categories={categories}
-            updateStock={updateStock}
-            setTransactions={setTransactionsWithBackend as any}
-            showNotification={showNotification}
-            currentUser={currentUser}
-            generateSku={generateSku}
-            openingParcel={openingParcel}
-            setOpeningParcel={setOpeningParcel}
-            pendingParcels={pendingParcels}
-            setPendingParcels={setPendingParcelsWithBackend}
-            transitGoods={transitGoods}
-            setTransitGoods={setTransitGoodsWithBackend}
-            godowns={godowns}
-            biltyPrefixes={biltyPrefixes}
-            customColumns={customColumns.inward}
-            activeBusinessId={activeBusinessId}
-            transactions={transactions}
-            setInventory={setInventoryWithBackend}
-            setConfirmDialog={setConfirmDialog}
-            setInwardSaved={setInwardSavedWithBackend}
-            inwardSaved={inwardSaved}
-            fieldLabels={fieldLabels}
-            requiredFields={requiredFields}
-            deliveredBilties={deliveredBilties}
-          />
-        )}
-        {activeTab === "opening" && currentUser.role === "admin" && (
-          <OpeningStockTab
-            inventory={inventory}
-            setInventory={setInventoryWithBackend}
-            categories={categories}
-            godowns={godowns}
-            setTransactions={setTransactionsWithBackend as any}
-            setInwardSaved={setInwardSavedWithBackend as any}
-            actor={actor}
-            activeBusinessId={activeBusinessId}
-            currentUser={currentUser}
-            showNotification={showNotification}
-          />
-        )}
-        {activeTab === "transfer" && currentUser.role !== "supplier" && (
-          <TransferTab
-            inventory={inventory}
-            updateStock={updateStock}
-            showNotification={showNotification}
-            godowns={godowns}
-            activeBusinessId={activeBusinessId}
-            setTransactions={setTransactionsWithBackend as any}
-            currentUser={currentUser}
-            actor={actor}
-            transfers={_transfers}
-            setTransfers={setTransfers}
-            onInventoryRefresh={refreshInventory}
-            requiredFields={requiredFields}
-            users={users}
-          />
-        )}
-        {activeTab === "sales" && currentUser.role === "admin" && (
-          <SalesTab
-            inventory={inventory}
-            updateStock={updateStock}
-            setTransactions={setTransactionsWithBackend as any}
-            showNotification={showNotification}
-            currentUser={currentUser}
-            godowns={godowns}
-            activeBusinessId={activeBusinessId}
-            categories={categories}
-            actor={actor}
-            requiredFields={requiredFields}
-          />
-        )}
-        {activeTab === "history" && currentUser.role !== "supplier" && (
-          <HistoryTab
-            transactions={transactions}
-            setConfirmDialog={setConfirmDialog}
-            setTransactions={setTransactionsWithBackend as any}
-            activeBusinessId={activeBusinessId}
-            currentUser={currentUser}
-            inventory={inventory}
-            transitGoods={transitGoods}
-            pendingParcels={pendingParcels}
-            categories={categories}
-            godowns={godowns}
-            showNotification={showNotification}
-            inwardSaved={inwardSaved}
-            updateStock={updateStock}
-            setInwardSaved={setInwardSavedWithBackend as any}
-          />
-        )}
-        {activeTab === "inwardSaved" && currentUser.role !== "supplier" && (
-          <InwardSavedTab
-            inwardSaved={inwardSaved}
-            setInwardSaved={setInwardSavedWithBackend}
-            currentUser={currentUser}
-            transactions={transactions}
-            activeBusinessId={activeBusinessId}
-            showNotification={showNotification}
-            godowns={godowns}
-            inventory={inventory}
-            setInventory={setInventoryWithBackend as any}
-          />
-        )}
-        {activeTab === "godownStock" && currentUser.role !== "supplier" && (
-          <GodownStockTab
-            inventory={inventory}
-            godowns={godowns}
-            activeBusinessId={activeBusinessId}
-          />
-        )}
-        {activeTab === "delivery" && currentUser.role !== "supplier" && (
-          <DeliveryTab
-            inventory={inventory}
-            setInventory={setInventoryWithBackend}
-            pendingParcels={pendingParcels}
-            setPendingParcels={setPendingParcelsWithBackend}
-            godowns={godowns}
-            categories={categories}
-            currentUser={currentUser}
-            activeBusinessId={activeBusinessId}
-            deliveryRecords={deliveryRecords}
-            setDeliveryRecords={setDeliveryRecords}
-            transactions={transactions}
-            setTransactions={setTransactionsWithBackend as any}
-            setInwardSaved={setInwardSavedWithBackend}
-            updateStock={updateStock}
-            showNotification={showNotification}
-            actor={actor}
-            onInventoryRefresh={refreshInventory}
-            onDeliveredBilty={(biltyNo) =>
-              setDeliveredBilties((prev) => [...new Set([...prev, biltyNo])])
-            }
-            requiredFields={requiredFields}
-            generateSku={generateSku}
-          />
-        )}
-        {activeTab === "analytics" && currentUser.role === "admin" && (
-          <AnalyticsTab
-            transactions={transactions}
-            inwardSaved={inwardSaved}
-            activeBusinessId={activeBusinessId}
-            godowns={godowns}
-          />
-        )}
-        {activeTab === "salesRecord" && currentUser.role === "admin" && (
-          <SalesRecordTab
-            transactions={transactions}
-            activeBusinessId={activeBusinessId}
-            isAdmin={true}
-            onEditTransaction={(updated) =>
-              setTransactionsWithBackend((prev: Transaction[]) =>
-                prev.map((t: Transaction) =>
-                  t.id === updated.id ? updated : t,
-                ),
-              )
-            }
-          />
-        )}
-        {activeTab === "settings" && currentUser.role === "admin" && (
-          <SettingsTab
-            initialSubTab={settingsSubTab}
-            users={users}
-            setUsers={setUsersWithBackend}
-            categories={categories}
-            setCategories={setCategoriesWithBackend}
-            customColumns={customColumns}
-            setCustomColumns={setCustomColumns}
-            exportDatabase={exportDatabase}
-            importDatabase={importDatabase}
-            showNotification={showNotification}
-            setPromptDialog={setPromptDialog}
-            setConfirmDialog={setConfirmDialog}
-            businesses={businesses}
-            setBusinesses={setBusinessesWithBackend}
-            activeBusinessId={activeBusinessId}
-            setActiveBusinessId={setActiveBusinessId}
-            inventory={inventory}
-            setInventory={setInventoryWithBackend}
-            godowns={godowns}
-            setGodowns={setGodownsWithBackend}
-            minStockThreshold={minStockThreshold}
-            setMinStockThreshold={setMinStockThreshold}
-            setTransactions={setTransactionsWithBackend as any}
-            currentUser={currentUser}
-            transportTracking={transportTracking}
-            setTransportTracking={setTransportTrackingWithBackend}
-            tabNames={tabNames}
-            setTabNames={setTabNames}
-            fieldLabels={fieldLabels}
-            setFieldLabels={setFieldLabels}
-            requiredFields={requiredFields}
-            setRequiredFields={setRequiredFields}
-            fieldOrder={fieldOrder}
-            setFieldOrder={setFieldOrder}
-            thresholdExcludedItems={thresholdExcludedItems}
-            setThresholdExcludedItems={setThresholdExcludedItems}
-            setTransitGoods={setTransitGoodsWithBackend}
-            setPendingParcels={setPendingParcelsWithBackend}
-            setInwardSaved={setInwardSavedWithBackend}
-            setDeliveryRecords={setDeliveryRecords}
-            setDeliveredBilties={setDeliveredBilties}
-            biltyPrefixes={biltyPrefixes}
-            setBiltyPrefixes={setBiltyPrefixesWithBackend}
-            fieldTypes={fieldTypes}
-            setFieldTypes={setFieldTypes}
-            fieldComboOptions={fieldComboOptions}
-            setFieldComboOptions={setFieldComboOptions}
-            customTabFields={customTabFields}
-            setCustomTabFields={setCustomTabFields}
-            categoryUnits={categoryUnits}
-            setCategoryUnits={setCategoryUnits}
-            itemUnitOverrides={itemUnitOverrides}
-            setItemUnitOverrides={setItemUnitOverrides}
-          />
-        )}
-        {/* Item History Panel */}
-        <ItemHistoryPanel
-          sku={selectedHistoryItem}
-          inventory={inventory}
-          transactions={transactions}
-          activeBusinessId={activeBusinessId}
-          onClose={() => setSelectedHistoryItem(null)}
-          inwardSaved={inwardSaved}
-        />
-        {/* Confirm Dialog */}
-        {confirmDialog && (
-          <div className="fixed inset-0 bg-gray-900/60 z-[100] flex items-center justify-center p-4">
-            <div className="bg-white p-8 rounded-[2.5rem] shadow-2xl max-w-sm w-full animate-fade-in-down">
-              <h3 className="text-xl font-black text-gray-800 mb-4">
-                Confirm Action
-              </h3>
-              <p className="text-sm font-bold text-gray-500 mb-6">
-                {confirmDialog.message}
-              </p>
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setConfirmDialog(null)}
-                  className="flex-1 bg-gray-100 text-gray-700 font-black py-4 rounded-2xl uppercase text-[10px] tracking-widest"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    confirmDialog.onConfirm();
-                    setConfirmDialog(null);
-                  }}
-                  className="flex-1 bg-red-600 text-white font-black py-4 rounded-2xl uppercase text-[10px] tracking-widest shadow-lg"
-                >
-                  Confirm
-                </button>
+          {/* Confirm Dialog */}
+          {confirmDialog && (
+            <div className="fixed inset-0 bg-gray-900/60 z-[100] flex items-center justify-center p-4">
+              <div className="bg-white p-8 rounded-[2.5rem] shadow-2xl max-w-sm w-full animate-fade-in-down">
+                <h3 className="text-xl font-black text-gray-800 mb-4">
+                  Confirm Action
+                </h3>
+                <p className="text-sm font-bold text-gray-500 mb-6">
+                  {confirmDialog.message}
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDialog(null)}
+                    className="flex-1 bg-gray-100 text-gray-700 font-black py-4 rounded-2xl uppercase text-[10px] tracking-widest"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      confirmDialog.onConfirm();
+                      setConfirmDialog(null);
+                    }}
+                    className="flex-1 bg-red-600 text-white font-black py-4 rounded-2xl uppercase text-[10px] tracking-widest shadow-lg"
+                  >
+                    Confirm
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        )}
-        {/* Prompt Dialog */}
-        {promptDialog && (
-          <div className="fixed inset-0 bg-gray-900/60 z-[100] flex items-center justify-center p-4">
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const val = (e.target as HTMLFormElement).promptInput.value;
-                promptDialog.onConfirm(val);
-                setPromptDialog(null);
-              }}
-              className="bg-white p-8 rounded-[2.5rem] shadow-2xl max-w-sm w-full animate-fade-in-down"
-            >
-              <h3 className="text-xl font-black text-gray-800 mb-2">
-                Input Required
-              </h3>
-              <p className="text-xs font-bold text-gray-500 mb-4">
-                {promptDialog.message}
-              </p>
-              <input
-                name="promptInput"
-                type="text"
-                defaultValue={promptDialog.defaultValue || ""}
-                className="w-full border rounded-xl p-4 outline-none font-bold focus:ring-2 focus:ring-blue-500 mb-6 bg-gray-50"
-              />
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setPromptDialog(null)}
-                  className="flex-1 bg-gray-100 text-gray-700 font-black py-4 rounded-2xl uppercase text-[10px] tracking-widest"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 bg-blue-600 text-white font-black py-4 rounded-2xl uppercase text-[10px] tracking-widest shadow-lg"
-                >
-                  Save
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
+          )}
+          {/* Prompt Dialog */}
+          {promptDialog && (
+            <div className="fixed inset-0 bg-gray-900/60 z-[100] flex items-center justify-center p-4">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const val = (e.target as HTMLFormElement).promptInput.value;
+                  promptDialog.onConfirm(val);
+                  setPromptDialog(null);
+                }}
+                className="bg-white p-8 rounded-[2.5rem] shadow-2xl max-w-sm w-full animate-fade-in-down"
+              >
+                <h3 className="text-xl font-black text-gray-800 mb-2">
+                  Input Required
+                </h3>
+                <p className="text-xs font-bold text-gray-500 mb-4">
+                  {promptDialog.message}
+                </p>
+                <input
+                  name="promptInput"
+                  type="text"
+                  defaultValue={promptDialog.defaultValue || ""}
+                  className="w-full border rounded-xl p-4 outline-none font-bold focus:ring-2 focus:ring-blue-500 mb-6 bg-gray-50"
+                />
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setPromptDialog(null)}
+                    className="flex-1 bg-gray-100 text-gray-700 font-black py-4 rounded-2xl uppercase text-[10px] tracking-widest"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 bg-blue-600 text-white font-black py-4 rounded-2xl uppercase text-[10px] tracking-widest shadow-lg"
+                  >
+                    Save
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+        </TabErrorBoundary>
       </main>
       {/* Mobile Bottom Nav */}
       <nav className="md:hidden fixed bottom-0 left-0 w-full bg-white border-t flex overflow-x-auto scrollbar-hide items-center p-2 z-10 gap-0.5">

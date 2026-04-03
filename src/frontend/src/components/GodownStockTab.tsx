@@ -1,5 +1,5 @@
 import { Warehouse } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { InventoryItem } from "../types";
 
 function GodownStockTab({
@@ -13,10 +13,20 @@ function GodownStockTab({
 }) {
   const [selectedGodown, setSelectedGodown] = useState(godowns[0] || "");
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only sync when godowns list changes
+  useEffect(() => {
+    if (
+      godowns.length > 0 &&
+      (!selectedGodown || !godowns.includes(selectedGodown))
+    ) {
+      setSelectedGodown(godowns[0]);
+    }
+  }, [godowns]);
+
   const items = Object.values(inventory).filter(
     (item) =>
       (!item.businessId || item.businessId === activeBusinessId) &&
-      (item.godowns[selectedGodown] || 0) > 0,
+      (item.godowns?.[selectedGodown] || 0) > 0,
   );
 
   const grouped = items.reduce<Record<string, InventoryItem[]>>((acc, item) => {
@@ -93,7 +103,7 @@ function GodownStockTab({
                           Qty in Godown
                         </p>
                         <p className="font-black text-green-700 text-lg">
-                          {item.godowns[selectedGodown] || 0}
+                          {item.godowns?.[selectedGodown] || 0}
                         </p>
                       </div>
                     </div>

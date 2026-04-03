@@ -363,6 +363,53 @@ function DeliveryTab({
         };
         setInwardSaved((prev) => [inwardSavedEntry, ...prev]);
 
+        // Persist the inwardSaved entry to Motoko backend so it survives page refresh
+        if (actor) {
+          try {
+            await (actor as any).saveInward({
+              id: String(inwardSavedEntry.id),
+              biltyNumber: inwardSavedEntry.biltyNumber,
+              businessId: inwardSavedEntry.businessId,
+              supplier: inwardSavedEntry.supplier || "",
+              transport: inwardSavedEntry.transporter || "",
+              savedBy: inwardSavedEntry.savedBy,
+              savedAt: BigInt(new Date(inwardSavedEntry.savedAt).getTime()),
+              items: inwardSavedEntry.items.map((item: any) => ({
+                category: item.category,
+                itemName: item.itemName,
+                subCategory: JSON.stringify({
+                  attributes: item.attributes,
+                  godownQty: item.godownQty,
+                }),
+                totalQty: BigInt(Math.round(item.qty)),
+                shopQty: BigInt(0),
+                purchaseRate: item.purchaseRate || 0,
+                saleRate: item.saleRate || 0,
+                godownQtys:
+                  item.godownBreakdown &&
+                  Object.keys(item.godownBreakdown).length > 0
+                    ? Object.entries(item.godownBreakdown).map(
+                        ([godownId, qty]: [string, any]) => ({
+                          godownId,
+                          qty: BigInt(Math.round(qty)),
+                        }),
+                      )
+                    : [
+                        {
+                          godownId: selectedGodown,
+                          qty: BigInt(Math.round(item.qty)),
+                        },
+                      ],
+              })),
+            });
+          } catch (e) {
+            console.error(
+              "Failed to persist inwardSaved for queue delivery:",
+              e,
+            );
+          }
+        }
+
         // Add items to inventory (inward) then immediately reduce via SALE (outward)
         // This ensures dashboard shows correct net stock and analytics record both flows
         for (const [idx, item] of validItems.entries()) {
@@ -374,7 +421,7 @@ function DeliveryTab({
             activeBusinessId,
           );
           const itemQty = Number(item.qty);
-          // Step 1: Add real qty to inventory (inward)
+          // Step 1: Add real qty to inventory (inward) - add to godown, not shop
           _updateStock(
             generatedSku,
             {
@@ -385,8 +432,8 @@ function DeliveryTab({
               saleRate: 0,
               purchaseRate: 0,
             },
-            itemQty,
             0,
+            itemQty,
             selectedGodown,
           );
           // Step 2: Record SALE transaction (marks it as direct delivery to customer)
@@ -440,7 +487,7 @@ function DeliveryTab({
               console.error("Failed to persist sale tx:", e);
             }
           }
-          // Step 4: Reduce godown stock so dashboard shows net 0 for this item
+          // Step 4: Reduce godown stock (outward) so dashboard shows net 0 for this item
           _updateStock(
             generatedSku,
             {
@@ -451,8 +498,8 @@ function DeliveryTab({
               saleRate: 0,
               purchaseRate: 0,
             },
-            -itemQty,
             0,
+            -itemQty,
             selectedGodown,
           );
         }
